@@ -3,6 +3,7 @@ from dependency_injector.wiring import inject, Provide
 from dependency_container import Container
 from services.subject_service import SubjectService
 from api.schemas.subject_schema import SubjectSchema
+from api.middleware import token_required, role_required
 
 subject_bp = Blueprint('subject', __name__, url_prefix='/subjects')
 
@@ -51,6 +52,8 @@ def get_subject(id: int, subject_service: SubjectService = Provide[Container.sub
     return jsonify(schema.dump(subject)), 200
 
 @subject_bp.route('/', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@token_required
+@role_required(['Admin', 'Academic Affairs'])
 @inject
 def create_subject(subject_service: SubjectService = Provide[Container.subject_service]):
     """Create a new subject
@@ -74,13 +77,16 @@ def create_subject(subject_service: SubjectService = Provide[Container.subject_s
     if request.method == 'OPTIONS':
         return '', 200
     data = request.get_json() or {}
-    errors = schema.validate(data)
-    if errors:
-        return jsonify(errors), 400
-    subject = subject_service.create_subject(data)
+    try:
+        loaded_data = schema.load(data)
+    except Exception as e:
+        return jsonify(getattr(e, 'messages', str(e))), 400
+    subject = subject_service.create_subject(loaded_data)
     return jsonify(schema.dump(subject)), 201
 
 @subject_bp.route('/<int:id>', methods=['PUT', 'OPTIONS'], strict_slashes=False)
+@token_required
+@role_required(['Admin', 'Academic Affairs'])
 @inject
 def update_subject(id: int, subject_service: SubjectService = Provide[Container.subject_service]):
     """Update an existing subject
@@ -112,10 +118,12 @@ def update_subject(id: int, subject_service: SubjectService = Provide[Container.
     if request.method == 'OPTIONS':
         return '', 200
     data = request.get_json() or {}
-    errors = schema.validate(data)
-    if errors:
-        return jsonify(errors), 400
-    subject = subject_service.update_subject(id, data)
+    try:
+        loaded_data = schema.load(data, partial=True)
+    except Exception as e:
+        return jsonify(getattr(e, 'messages', str(e))), 400
+    
+    subject = subject_service.update_subject(id, loaded_data)
     if not subject:
         return jsonify({'message': 'Subject not found'}), 404
     return jsonify(schema.dump(subject)), 200

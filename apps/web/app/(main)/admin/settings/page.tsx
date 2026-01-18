@@ -1,3 +1,10 @@
+/*
+fixed issues in Academic Year settings page:
+- Khi tạo năm học mới, không bắt buộc phải nhập start_date và end_date nữa
+- Thêm thông báo khi tạo năm học thành công
+- Sau khi kích hoạt năm học mới, reload trang để Header cập nhật lại năm học hiện tại 
+*/
+
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -12,14 +19,13 @@ import { Badge } from "@/components/ui/badge";
 interface AcademicYear {
   id: number;
   code: string;
-  name: string;
-  is_active: boolean;
+  isActive: boolean;
 }
 
 export default function SettingsPage() {
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newYear, setNewYear] = useState({ code: "", name: "" });
+  const [newYear, setNewYear] = useState({ code: "" });
 
   const fetchYears = async () => {
     setLoading(true);
@@ -34,18 +40,18 @@ export default function SettingsPage() {
   useEffect(() => { fetchYears(); }, []);
 
   const handleCreate = async () => {
-    if (!newYear.code || !newYear.name) return alert("Vui lòng nhập đủ thông tin");
+    if (!newYear.code) return alert("Vui lòng nhập mã năm học");
     try {
-      await axios.post('/academic-years/', { code: newYear.code, name: newYear.name });
+      await axios.post('/academic-years/', { code: newYear.code });
       alert("Thêm thành công!");
-      setNewYear({ code: "", name: "" });
+      setNewYear({ code: "" });
       fetchYears();
     } catch (e: any) { const message = e?.response?.data?.detail || e?.message || "Lỗi kết nối"; alert("Lỗi: " + message); }
   };
 
   const handleActivate = async (id: number) => {
       try {
-          await axios.put(`/academic-years/${id}`, { is_active: true });
+          await axios.put(`/academic-years/${id}`, { isActive: true });
           alert("Đã kích hoạt năm học mới!");
           fetchYears();
           // Reload trang để Header cập nhật lại
@@ -68,12 +74,9 @@ export default function SettingsPage() {
             <CardHeader><CardTitle>Thêm Năm học mới</CardTitle></CardHeader>
             <CardContent className="space-y-4">
                 <div className="space-y-2">
-                    <label className="text-sm font-medium">Mã Năm học (Code)</label>
+                    <label className="text-sm font-medium">Mã Năm học</label>
                     <Input placeholder="2026-2027" value={newYear.code} onChange={e => setNewYear({...newYear, code: e.target.value})} />
-                </div>
-                <div className="space-y-2">
-                    <label className="text-sm font-medium">Tên hiển thị</label>
-                    <Input placeholder="Năm học 2026 - 2027" value={newYear.name} onChange={e => setNewYear({...newYear, name: e.target.value})} />
+                    <p className="text-xs text-muted-foreground">VD: 2026-2027, HK1-2026</p>
                 </div>
                 <Button className="w-full mt-2" onClick={handleCreate}>
                     <Plus className="w-4 h-4 mr-2"/> Thêm mới
@@ -88,8 +91,7 @@ export default function SettingsPage() {
                 <Table>
                     <TableHeader>
                         <TableRow>
-                            <TableHead>Code</TableHead>
-                            <TableHead>Tên hiển thị</TableHead>
+                            <TableHead>Mã năm học</TableHead>
                             <TableHead>Trạng thái</TableHead>
                             <TableHead className="text-right">Hành động</TableHead>
                         </TableRow>
@@ -98,18 +100,17 @@ export default function SettingsPage() {
                         {loading ? (
                             <TableRow><TableCell colSpan={4} className="text-center h-24"><Loader2 className="animate-spin w-4 h-4 inline mr-2"/> Đang tải...</TableCell></TableRow>
                         ) : years.map(y => (
-                            <TableRow key={y.id} className={y.is_active ? "bg-green-50" : ""}>
+                            <TableRow key={y.id} className={y.isActive ? "bg-green-50" : ""}>
                                 <TableCell className="font-mono font-bold">{y.code}</TableCell>
-                                <TableCell>{y.name}</TableCell>
                                 <TableCell>
-                                    {y.is_active ? (
+                                    {y.isActive ? (
                                         <Badge className="bg-green-600 hover:bg-green-700">Đang kích hoạt</Badge>
                                     ) : (
                                         <Badge variant="outline">Không hoạt động</Badge>
                                     )}
                                 </TableCell>
                                 <TableCell className="text-right">
-                                    {!y.is_active && (
+                                    {!y.isActive && (
                                         <Button size="sm" variant="outline" onClick={() => handleActivate(y.id)}>
                                             <CheckCircle className="w-4 h-4 mr-2 text-green-600"/> Kích hoạt
                                         </Button>

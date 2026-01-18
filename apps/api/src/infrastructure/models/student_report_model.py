@@ -18,6 +18,7 @@ class StudentReport(Base):
     content = Column(UnicodeText, nullable=False)
     status = Column(NVARCHAR(20), default='PENDING')  # PENDING, RESOLVED, REJECTED
     admin_note = Column(UnicodeText)
+    created_at = Column(DateTime, default=func.now())
     
     # Relationships
     syllabus = relationship("Syllabus", back_populates="student_reports")

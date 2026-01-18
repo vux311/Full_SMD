@@ -1,4 +1,4 @@
-from marshmallow import Schema, post_dump
+from marshmallow import Schema, post_dump, EXCLUDE
 import re
 
 def snake_to_camel(s: str) -> str:
@@ -18,6 +18,9 @@ def _convert(obj):
         return obj
 
 class BaseSchema(Schema):
+    class Meta:
+        unknown = EXCLUDE
+
     @post_dump
     def to_camel(self, data, many=False, **kwargs):
         # marshmallow may or may not pass `many`; accept it optionally

@@ -3,25 +3,36 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from infrastructure.databases.mssql import session
 from infrastructure.models.syllabus_model import Syllabus
+from infrastructure.models.syllabus_clo_model import SyllabusClo
 from infrastructure.models.assessment_scheme_model import AssessmentScheme
 from infrastructure.models.assessment_component_model import AssessmentComponent
+from infrastructure.models.assessment_clo_model import AssessmentClo
 
 class SyllabusRepository:
     def __init__(self, session: Session = session):
         self.session = session
 
-    def get_all(self) -> List[Syllabus]:
+    def get_all(self, filters: dict = None) -> List[Syllabus]:
         # Eager load related entities to prevent N+1 queries
-        return (self.session.query(Syllabus)
+        query = (self.session.query(Syllabus)
                 .options(
                     joinedload(Syllabus.subject),
                     joinedload(Syllabus.program),
                     joinedload(Syllabus.academic_year),
                     joinedload(Syllabus.lecturer)
-                )
-                .all())
+                ))
+        
+        if filters:
+            if 'status' in filters and filters['status']:
+                status_val = filters['status']
+                if isinstance(status_val, list):
+                    query = query.filter(Syllabus.status.in_(status_val))
+                else:
+                    query = query.filter(Syllabus.status == status_val)
+                
+        return query.all()
     
-    def get_all_paginated(self, page: int, page_size: int):
+    def get_all_paginated(self, page: int, page_size: int, filters: dict = None):
         """
         Get paginated syllabuses with eager loading
         Returns: (items, total_count)
@@ -32,8 +43,17 @@ class SyllabusRepository:
                     joinedload(Syllabus.program),
                     joinedload(Syllabus.academic_year),
                     joinedload(Syllabus.lecturer)
-                )
-                .order_by(Syllabus.created_at.desc()))
+                ))
+        
+        if filters:
+            if 'status' in filters and filters['status']:
+                status_val = filters['status']
+                if isinstance(status_val, list):
+                    query = query.filter(Syllabus.status.in_(status_val))
+                else:
+                    query = query.filter(Syllabus.status == status_val)
+
+        query = query.order_by(Syllabus.created_at.desc())
         
         total = query.count()
         offset = (page - 1) * page_size
@@ -63,17 +83,32 @@ class SyllabusRepository:
                 .filter_by(subject_id=subject_id)
                 .all())
 
+    def get_active_by_subject(self, subject_id: int) -> Optional[Syllabus]:
+        """Get the published or most recent active syllabus for a subject"""
+        return (self.session.query(Syllabus)
+                .filter(Syllabus.subject_id == subject_id)
+                .filter(Syllabus.status.in_(['PUBLISHED', 'APPROVED']))
+                .order_by(Syllabus.created_at.desc())
+                .first())
+
     def get_details(self, id: int) -> Optional[Syllabus]:
-        # Eagerly load related collections and nested components->rubrics
+        # Eagerly load related metadata AND collections
         return (
             self.session.query(Syllabus)
             .options(
-                joinedload(Syllabus.clos),
+                joinedload(Syllabus.subject),
+                joinedload(Syllabus.program),
+                joinedload(Syllabus.academic_year),
+                joinedload(Syllabus.lecturer),
+                joinedload(Syllabus.clos).joinedload(SyllabusClo.plo_mappings),
                 joinedload(Syllabus.materials),
                 joinedload(Syllabus.teaching_plans),
                 joinedload(Syllabus.assessment_schemes)
                     .joinedload(AssessmentScheme.components)
-                    .joinedload(AssessmentComponent.rubrics),
+                    .options(
+                        joinedload(AssessmentComponent.rubrics),
+                        joinedload(AssessmentComponent.clos).joinedload(AssessmentClo.syllabus_clo)
+                    ),
             )
             .filter_by(id=id)
             .first()

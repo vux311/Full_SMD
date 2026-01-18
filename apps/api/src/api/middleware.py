@@ -93,3 +93,41 @@ def token_required(f):
         return f(*args, **kwargs)
 
     return decorated
+
+
+# Role-based access control decorator
+def role_required(allowed_roles):
+    """
+    Decorator to restrict access to specific roles.
+    Usage: @role_required(['Admin', 'Head of Dept'])
+    
+    Args:
+        allowed_roles: List of role names that are allowed to access the endpoint
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            from flask import g, jsonify, request, make_response
+            
+            # Allow preflight CORS requests through
+            if request.method == 'OPTIONS':
+                return make_response('', 200)
+            
+            # Get role from Flask g context (set by @token_required)
+            user_role = getattr(g, 'role', None)
+            
+            if not user_role:
+                return jsonify({
+                    'message': 'Role information not found. Please login again.'
+                }), 403
+            
+            # Check if user's role is in allowed roles
+            if user_role not in allowed_roles:
+                return jsonify({
+                    'message': f'Access denied. Required roles: {", ".join(allowed_roles)}',
+                    'your_role': user_role
+                }), 403
+            
+            return f(*args, **kwargs)
+        return decorated
+    return decorator

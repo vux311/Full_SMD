@@ -26,7 +26,7 @@ export default function MaterialsTab({ data, readOnly, onUpdate, onAdd, onRemove
             <div key={originalIndex} className="flex gap-2 items-center">
               <span className="text-sm font-bold w-8 text-gray-500">[{i + 1}]</span>
               <Input 
-                value={m.content} 
+                value={m.title} 
                 onChange={(e) => onUpdate(originalIndex, e.target.value)} 
                 placeholder="Ví dụ: Tên tác giả, Năm xuất bản, Tên sách, Nhà xuất bản..." 
                 disabled={readOnly}

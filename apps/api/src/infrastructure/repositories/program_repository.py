@@ -8,7 +8,8 @@ class ProgramRepository:
         self.session = session
 
     def get_all(self) -> List[Program]:
-        return self.session.query(Program).all()
+        from sqlalchemy.orm import joinedload
+        return self.session.query(Program).options(joinedload(Program.department)).all()
 
     def get_by_id(self, id: int) -> Optional[Program]:
         return self.session.query(Program).filter_by(id=id).first()

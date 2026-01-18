@@ -16,6 +16,7 @@ class Faculty(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     code = Column(NVARCHAR(20), unique=True, nullable=False)
     name = Column(NVARCHAR(255), nullable=False)
+    description = Column(NVARCHAR(None))
     
     # Relationships
     departments = relationship("Department", back_populates="faculty")

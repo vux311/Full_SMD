@@ -14,8 +14,9 @@ class AcademicYear(Base):
     
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     code = Column(NVARCHAR(20), unique=True)
-    start_date = Column(Date)
-    end_date = Column(Date)
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
+    is_active = Column(Boolean, default=False)
     
     # Relationships
     syllabuses = relationship("Syllabus", back_populates="academic_year")

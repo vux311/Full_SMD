@@ -1,32 +1,46 @@
-export type SyllabusStatus = "Draft" | "Pending" | "Approved" | "Returned" | "Pending Approval";
+export type SyllabusStatus = "Draft" | "Pending" | "Approved" | "Returned" | "Pending Approval" | "Published";
 
 export interface SyllabusData {
   id?: number;
+  // Required backend IDs
+  subjectId?: number;
+  programId?: number;
+  academicYearId?: number;
+  lecturerId?: number;
+  headDepartmentId?: number;
+  deanId?: number;
+  
   status: SyllabusStatus;
   version?: string;
+  dueDate?: string | null;
+  assignedTo?: string | null;
   subjectNameVi: string;
   subjectNameEn: string;
   subjectCode: string;
   credits: number;
+  lecturer?: string | null;
+  programName?: string | null;
+  academicYearName?: string | null;
+  feedback?: string | null;
   timeAllocation: {
     theory: number;
     exercises: number;
     practice: number;
     selfStudy: number;
   };
-  prerequisites: string;
-  preCourses: string;
-  coCourses: string;
-  courseType: string;
-  componentType: string;
-  description: string;
+  prerequisites: string | null;
+  preCourses: string | null;
+  coCourses: string | null;
+  courseType: string | null;
+  componentType: string | null;
+  description: string | null;
   objectives: string[];
   clos: { code: string; description: string }[];
   ploMapping: {
     cloCode: string;
     plos: { [key: string]: string };
   }[];
-  studentDuties: string;
+  studentDuties: string | null;
   assessmentScheme: {
     component: string;
     method: string;
@@ -35,26 +49,33 @@ export interface SyllabusData {
     weight: number;
   }[];
   teachingPlan: {
-    week: string;
-    content: string;
+    week: number;
+    topic: string;
     clos: string;
     activity: string;
     assessment: string;
   }[];
   materials: {
     type: "Main" | "Ref";
-    content: string;
+    title: string;
   }[];
-  otherRequirements: string;
-  datePrepared: string;
-  dateEdited: string;
-  lecturer: string;
-  headDepartment: string;
-  dean: string;
+  otherRequirements: string | null;
+  datePrepared: string | null;
+  dateEdited: string | null;
+  headDepartment?: string | null;
+  dean?: string | null;
 }
 
 export const defaultSyllabus: SyllabusData = {
   status: "Draft",
+  // Set default IDs to undefined - user MUST select these
+  subjectId: undefined,
+  programId: undefined,
+  academicYearId: undefined,
+  lecturerId: undefined,
+  headDepartmentId: undefined,
+  deanId: undefined,
+  
   subjectNameVi: "",
   subjectNameEn: "",
   subjectCode: "",

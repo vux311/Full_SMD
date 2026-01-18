@@ -3,6 +3,8 @@ from dependency_injector.wiring import inject, Provide
 from dependency_container import Container
 from services.program_service import ProgramService
 from api.schemas.program_schema import ProgramSchema
+from api.middleware import token_required, role_required
+from marshmallow import ValidationError
 
 program_bp = Blueprint('program', __name__, url_prefix='/programs')
 
@@ -25,23 +27,31 @@ def list_programs(program_service: ProgramService = Provide[Container.program_se
     return jsonify(schema.dump(items, many=True)), 200
 
 @program_bp.route('/', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@token_required
+@role_required(['Admin', 'Academic Affairs'])
 @inject
 def create_program(program_service: ProgramService = Provide[Container.program_service]):
     data = request.get_json() or {}
-    errors = schema.validate(data)
-    if errors:
-        return jsonify(errors), 400
-    p = program_service.create_program(data)
+    try:
+        loaded_data = schema.load(data)
+    except ValidationError as err:
+        return jsonify(err.messages), 400
+    except Exception as e:
+        return jsonify({'message': str(e)}), 400
+    p = program_service.create_program(loaded_data)
     return jsonify(schema.dump(p)), 201
 
 @program_bp.route('/<int:id>', methods=['PUT', 'OPTIONS'], strict_slashes=False)
 @inject
 def update_program(id: int, program_service: ProgramService = Provide[Container.program_service]):
     data = request.get_json() or {}
-    errors = schema.validate(data, partial=True)
-    if errors:
-        return jsonify(errors), 400
-    p = program_service.update_program(id, data)
+    try:
+        loaded_data = schema.load(data, partial=True)
+    except ValidationError as err:
+        return jsonify(err.messages), 400
+    except Exception as e:
+        return jsonify({'message': str(e)}), 400
+    p = program_service.update_program(id, loaded_data)
     if not p:
         return jsonify({'message': 'Program not found'}), 404
     return jsonify(schema.dump(p)), 200

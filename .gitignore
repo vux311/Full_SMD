@@ -72,3 +72,14 @@ dist/
 
 # --- Docker ---
 *.log
+# --- SMD Project Specifics ---
+repomix-output.xml
+celerybeat-schedule*
+**/logs/*.txt
+**/logs/*.log
+**/temp_ocr/
+**/static/uploads/*
+!**/static/uploads/.gitkeep
+postgres_data/
+.env*
+!*.env.example

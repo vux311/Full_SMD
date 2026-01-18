@@ -3,6 +3,7 @@ from dependency_injector.wiring import inject, Provide
 from dependency_container import Container
 from services.program_outcome_service import ProgramOutcomeService
 from api.schemas.program_outcome_schema import ProgramOutcomeSchema
+from api.middleware import token_required, role_required
 
 program_outcome_bp = Blueprint('program_outcome', __name__, url_prefix='/program-outcomes')
 schema = ProgramOutcomeSchema()
@@ -14,6 +15,8 @@ def list_plos(program_id: int, service: ProgramOutcomeService = Provide[Containe
     return jsonify(schema.dump(items, many=True)), 200
 
 @program_outcome_bp.route('/', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@token_required
+@role_required(['Admin', 'Academic Affairs'])
 @inject
 def create_plo(service: ProgramOutcomeService = Provide[Container.program_outcome_service]):
     data = request.get_json() or {}

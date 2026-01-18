@@ -2,14 +2,15 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import SyllabusDetailView from "@/components/SyllabusDetailView";
+import StudentActionButtons from "@/components/StudentActionButtons";
 import { SyllabusData, defaultSyllabus } from "@/components/Types";
 
 export default async function StudentViewPage(props: { params: Promise<{ id: string }> }) {
   const { id } = await props.params;
 
   try {
-    // Gọi API lấy chi tiết đề cương (use public env var and plural resource)
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/syllabuses/${id}`, { cache: "no-store" });
+    // Gọi API lấy chi tiết đề cương (SỬA: sử dụng endpoint public để lọc trạng thái Approved/Published)
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/public/syllabus/${id}`, { cache: "no-store" });
 
     if (!res.ok) {
         return (
@@ -28,27 +29,69 @@ export default async function StudentViewPage(props: { params: Promise<{ id: str
         ...rawData,
         objectives: rawData.objectives || [],
         clos: rawData.clos || [],
-        ploMapping: rawData.ploMapping || [],
-        assessmentScheme: rawData.assessmentScheme || [],
-        teachingPlan: rawData.teachingPlan || [],
+        
+        // Chuyển đổi ploMapping từ cấu trúc lồng nhau của backend
+        ploMapping: Array.isArray(rawData.clos) 
+            ? rawData.clos.map((clo: any) => {
+                const plos: { [key: string]: string } = {};
+                const mappings = clo.ploMappings || [];
+                if (Array.isArray(mappings)) {
+                    mappings.forEach((m: any) => {
+                        const code = m.programPloCode;
+                        if (code) plos[code] = m.level;
+                    });
+                }
+                return { cloCode: clo.code, plos };
+            })
+            : [],
+
+        // Chuyển đổi assessmentScheme từ cấu trúc đa cấp (Scheme -> Component)
+        assessmentScheme: Array.isArray(rawData.assessmentSchemes)
+            ? rawData.assessmentSchemes.flatMap((scheme: any) => 
+                (scheme.components || []).map((comp: any) => ({
+                    component: scheme.name,
+                    method: comp.name,
+                    clos: Array.isArray(comp.clos) 
+                        ? comp.clos.map((ac: any) => ac.syllabusCloCode).filter(Boolean).join(', ') 
+                        : (comp.cloIds || ''),
+                    criteria: comp.criteria || (comp.rubrics && comp.rubrics.length > 0 ? comp.rubrics[0].criteria : ''),
+                    weight: comp.weight
+                }))
+              )
+            : [],
+
+        teachingPlan: rawData.teachingPlans || [],
         materials: rawData.materials || [],
         timeAllocation: rawData.timeAllocation || { theory: 0, exercises: 0, practice: 0, selfStudy: 0 }
     };
 
     return (
-        <div className="container mx-auto pb-10">
-            {/* Nút quay lại */}
-            <div className="mb-6">
+        <div className="container mx-auto pb-10 max-w-6xl px-4">
+            {/* Nút quay lại & Actions */}
+            <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 py-4 border-b">
                 <Link href="/portal">
-                    <Button variant="outline" className="gap-2 bg-white hover:bg-slate-100">
+                    <Button variant="ghost" className="gap-2 hover:bg-slate-100 text-slate-600">
                         <ArrowLeft className="w-4 h-4" /> Quay lại tìm kiếm
                     </Button>
                 </Link>
+
+                <div className="w-full md:w-auto min-w-[320px]">
+                    {/* Giữ ActionButtons ở đây để giao diện portal chuyên nghiệp hơn */}
+                    <StudentActionButtons 
+                        syllabusId={syllabus.id!} 
+                        subjectId={syllabus.subjectId!} 
+                        subjectCode={syllabus.subjectCode} 
+                    />
+                </div>
             </div>
 
             {/* Hiển thị nội dung đề cương */}
-            <div className="bg-white shadow-sm rounded-lg border overflow-hidden">
-                <SyllabusDetailView syllabus={syllabus} />
+            <div className="bg-white shadow-xl rounded-xl border-t-4 border-teal-600 overflow-hidden">
+                <SyllabusDetailView 
+                    syllabus={syllabus} 
+                    hideManagementButtons={true} 
+                    hideStudentActions={true} 
+                />
             </div>
         </div>
     );

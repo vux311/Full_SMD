@@ -3,6 +3,7 @@ from dependency_injector.wiring import inject, Provide
 from dependency_container import Container
 from services.faculty_service import FacultyService
 from api.schemas.faculty_schema import FacultySchema
+from api.middleware import token_required, role_required
 
 faculty_bp = Blueprint('faculty', __name__, url_prefix='/faculties')
 
@@ -51,6 +52,8 @@ def get_faculty(id: int, faculty_service: FacultyService = Provide[Container.fac
     return jsonify(schema.dump(faculty)), 200
 
 @faculty_bp.route('/', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@token_required
+@role_required(['Admin', 'Academic Affairs'])
 @inject
 def create_faculty(faculty_service: FacultyService = Provide[Container.faculty_service]):
     """Create a new faculty
@@ -72,13 +75,16 @@ def create_faculty(faculty_service: FacultyService = Provide[Container.faculty_s
           description: Invalid input
     """
     data = request.get_json() or {}
-    errors = schema.validate(data)
-    if errors:
-        return jsonify(errors), 400
-    faculty = faculty_service.create_faculty(data)
+    try:
+        loaded_data = schema.load(data)
+    except Exception as e:
+        return jsonify(getattr(e, 'messages', str(e))), 400
+    faculty = faculty_service.create_faculty(loaded_data)
     return jsonify(schema.dump(faculty)), 201
 
 @faculty_bp.route('/<int:id>', methods=['PUT', 'OPTIONS'], strict_slashes=False)
+@token_required
+@role_required(['Admin', 'Academic Affairs'])
 @inject
 def update_faculty(id: int, faculty_service: FacultyService = Provide[Container.faculty_service]):
     """Update an existing faculty
@@ -108,10 +114,12 @@ def update_faculty(id: int, faculty_service: FacultyService = Provide[Container.
           description: Faculty not found
     """
     data = request.get_json() or {}
-    errors = schema.validate(data)
-    if errors:
-        return jsonify(errors), 400
-    faculty = faculty_service.update_faculty(id, data)
+    try:
+        loaded_data = schema.load(data, partial=True)
+    except Exception as e:
+        return jsonify(getattr(e, 'messages', str(e))), 400
+    
+    faculty = faculty_service.update_faculty(id, loaded_data)
     if not faculty:
         return jsonify({'message': 'Faculty not found'}), 404
     return jsonify(schema.dump(faculty)), 200

@@ -12,6 +12,12 @@ from infrastructure.databases.base import Base
 class Syllabus(Base):
     __tablename__ = 'syllabuses'
     
+    # Unique constraint to prevent duplicate syllabuses
+    __table_args__ = (
+        UniqueConstraint('subject_id', 'program_id', 'academic_year_id', 'status', 
+                        name='uq_syllabus_active'),
+    )
+    
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     subject_id = Column(BigInteger, ForeignKey('subjects.id'), nullable=False)
     program_id = Column(BigInteger, ForeignKey('programs.id'), nullable=False)
@@ -21,6 +27,25 @@ class Syllabus(Base):
     version = Column(NVARCHAR(10))
     time_allocation = Column(UnicodeText)  # JSON
     prerequisites = Column(UnicodeText)
+    
+    # Content fields
+    description = Column(UnicodeText, nullable=True)  # Mô tả tóm tắt học phần
+    objectives = Column(UnicodeText, nullable=True)  # JSON array of course objectives
+    student_duties = Column(UnicodeText, nullable=True)  # Nhiệm vụ của sinh viên
+    other_requirements = Column(UnicodeText, nullable=True)  # Yêu cầu khác
+    
+    # Additional metadata
+    pre_courses = Column(UnicodeText, nullable=True)  # HP học trước
+    co_courses = Column(UnicodeText, nullable=True)  # HP song hành
+    course_type = Column(NVARCHAR(50), nullable=True)  # Bắt buộc/Tự chọn
+    component_type = Column(NVARCHAR(100), nullable=True)  # Cơ sở ngành, etc.
+    date_prepared = Column(NVARCHAR(20), nullable=True)  # Ngày biên soạn
+    date_edited = Column(NVARCHAR(20), nullable=True)  # Ngày chỉnh sửa
+    dean = Column(NVARCHAR(255), nullable=True)  # Trưởng khoa (Name)
+    dean_id = Column(BigInteger, ForeignKey('users.id'), nullable=True)
+    head_department = Column(NVARCHAR(255), nullable=True)  # Trưởng BM (Name)
+    head_department_id = Column(BigInteger, ForeignKey('users.id'), nullable=True)
+    
     publish_date = Column(DateTime)
     is_active = Column(Boolean)
     embedding_vector = Column(UnicodeText, nullable=True)  # JSON vector
@@ -31,7 +56,10 @@ class Syllabus(Base):
     subject = relationship("Subject", back_populates="syllabuses")
     program = relationship("Program", back_populates="syllabuses")
     academic_year = relationship("AcademicYear", back_populates="syllabuses")
-    lecturer = relationship("User", back_populates="syllabuses")
+    lecturer = relationship("User", back_populates="syllabuses", foreign_keys=[lecturer_id])
+    dean_user = relationship("User", foreign_keys=[dean_id])
+    head_department_user = relationship("User", foreign_keys=[head_department_id])
+    
     clos = relationship("SyllabusClo", back_populates="syllabus", cascade="all, delete-orphan")
     materials = relationship("SyllabusMaterial", back_populates="syllabus", cascade="all, delete-orphan")
     teaching_plans = relationship("TeachingPlan", back_populates="syllabus", cascade="all, delete-orphan")

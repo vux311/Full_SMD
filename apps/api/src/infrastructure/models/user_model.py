@@ -31,7 +31,12 @@ class User(Base):
     uploaded_files = relationship("File", back_populates="uploader", foreign_keys="File.uploader_id")
     
     roles = relationship("UserRole", back_populates="user")
-    syllabuses = relationship("Syllabus", back_populates="lecturer")
+    syllabuses = relationship(
+        "Syllabus", 
+        back_populates="lecturer", 
+        primaryjoin="User.id == Syllabus.lecturer_id",
+        foreign_keys="Syllabus.lecturer_id"
+    )
     comments = relationship("SyllabusComment", back_populates="user")
     notifications = relationship("Notification", back_populates="user")
     workflow_logs = relationship("WorkflowLog", back_populates="actor")

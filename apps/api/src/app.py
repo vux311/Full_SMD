@@ -34,7 +34,10 @@ from api.controllers.syllabus_comment_controller import syllabus_comment_bp
 from api.controllers.notification_controller import notification_bp
 from api.controllers.system_setting_controller import system_setting_bp
 from api.controllers.student_controller import student_bp
+from api.controllers.search_controller import search_bp
 from api.controllers.public_controller import public_bp
+from api.controllers.admin_controller import admin_bp
+from utils.socket_io import socketio, init_socketio
 
 
 def create_app():
@@ -47,6 +50,12 @@ def create_app():
         pass
 
     Swagger(app)
+    # Using async_mode='threading' or 'gevent' is often more stable on Windows for development 
+    # if eventlet produces WinError 10038
+    try:
+        init_socketio(app)
+    except Exception as e:
+        print(f"[WARNING] SocketIO init failure: {e}")
 
     # Initialize DI container and wire controllers
     container = Container()
@@ -79,7 +88,9 @@ def create_app():
             "api.controllers.notification_controller",
             "api.controllers.system_setting_controller",
             "api.controllers.student_controller",
+            "api.controllers.search_controller",
             "api.controllers.public_controller",
+            "api.controllers.admin_controller",
         ])
         print("[OK] Dependency injection wiring successful")
     except Exception as e:
@@ -119,7 +130,9 @@ def create_app():
     app.register_blueprint(notification_bp)
     app.register_blueprint(system_setting_bp)
     app.register_blueprint(student_bp)
+    app.register_blueprint(search_bp)
     app.register_blueprint(public_bp)
+    app.register_blueprint(admin_bp)
 
      # Thêm Swagger UI blueprint
     SWAGGER_URL = '/docs'
@@ -174,5 +187,7 @@ def create_app():
 # Run the application
 
 if __name__ == '__main__':
+    print("Starting app initialization...")
     app = create_app()
-    app.run(host='0.0.0.0', port=5000, debug=True) 
+    print("App created, starting socketio...")
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True) 

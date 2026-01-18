@@ -15,7 +15,7 @@ class Rubric(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     component_id = Column(BigInteger, ForeignKey('assessment_components.id', ondelete='CASCADE'), nullable=False)
     criteria = Column(UnicodeText, nullable=False)
-    max_score = Column(DECIMAL(3, 1), nullable=False)
+    max_score = Column(DECIMAL(5, 2), nullable=False)
     description_level_pass = Column(UnicodeText)
     description_level_fail = Column(UnicodeText)
     

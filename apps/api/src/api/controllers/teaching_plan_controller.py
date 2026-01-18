@@ -55,6 +55,8 @@ def create_plan(teaching_plan_service: TeachingPlanService = Provide[Container.t
       400:
         description: Validation or creation error
     """
+    if request.method == 'OPTIONS':
+        return '', 200
     data = request.get_json() or {}
     errors = schema.validate(data)
     if errors:

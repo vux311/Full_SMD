@@ -1,4 +1,4 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9999";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
 function isPlainObject(value: any) {
   return Object.prototype.toString.call(value) === "[object Object]";

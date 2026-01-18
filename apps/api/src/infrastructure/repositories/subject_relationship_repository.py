@@ -1,5 +1,5 @@
 from typing import List, Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from infrastructure.databases.mssql import session
 from infrastructure.models.subject_relationship_model import SubjectRelationship
 
@@ -11,7 +11,15 @@ class SubjectRelationshipRepository:
         return self.session.query(SubjectRelationship).filter_by(id=id).first()
 
     def get_by_subject(self, subject_id: int) -> List[SubjectRelationship]:
-        return self.session.query(SubjectRelationship).filter_by(subject_id=subject_id).all()
+        return (self.session.query(SubjectRelationship)
+                .options(joinedload(SubjectRelationship.related_subject))
+                .filter_by(subject_id=subject_id).all())
+
+    def get_successors(self, subject_id: int) -> List[SubjectRelationship]:
+        """Get subjects that have THIS subject as a prerequisite/related subject"""
+        return (self.session.query(SubjectRelationship)
+                .options(joinedload(SubjectRelationship.subject))
+                .filter_by(related_subject_id=subject_id).all())
 
     def create(self, data: dict) -> SubjectRelationship:
         item = SubjectRelationship(**data)

@@ -124,9 +124,36 @@ export default async function Page(props: { params: Promise<{ id: string }> }) {
         ...rawData,
         objectives: rawData.objectives || [],
         clos: rawData.clos || [],
-        ploMapping: rawData.ploMapping || [],
-        assessmentScheme: rawData.assessmentScheme || [],
-        teachingPlan: rawData.teachingPlan || [],
+        ploMapping: Array.isArray(rawData.clos) 
+            ? rawData.clos.map((clo: any) => {
+                const plos: { [key: string]: string } = {};
+                const mappings = clo.plo_mappings || clo.ploMappings;
+                if (Array.isArray(mappings)) {
+                    mappings.forEach((m: any) => {
+                        const code = m.program_plo_code || m.programPloCode;
+                        if (code) plos[code] = m.level;
+                    });
+                }
+                return { cloCode: clo.code, plos };
+            })
+            : [],
+        
+        // Chuyển đổi assessmentScheme từ cấu trúc đa cấp backend
+        assessmentScheme: Array.isArray(rawData.assessmentSchemes)
+            ? rawData.assessmentSchemes.flatMap((scheme: any) => 
+                (scheme.components || []).map((comp: any) => ({
+                    component: scheme.name,
+                    method: comp.name,
+                    clos: Array.isArray(comp.clos) 
+                        ? comp.clos.map((ac: any) => ac.syllabusCloCode).filter(Boolean).join(', ') 
+                        : (comp.cloIds || ''),
+                    criteria: comp.criteria || (comp.rubrics && comp.rubrics.length > 0 ? comp.rubrics[0].criteria : ''),
+                    weight: comp.weight
+                }))
+              )
+            : [],
+
+        teachingPlan: rawData.teachingPlans || [],
         materials: rawData.materials || [],
         timeAllocation: rawData.timeAllocation || { theory: 0, exercises: 0, practice: 0, selfStudy: 0 }
     };

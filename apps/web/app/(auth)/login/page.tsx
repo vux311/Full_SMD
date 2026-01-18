@@ -10,8 +10,8 @@ import axios from "@/lib/axios";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("123456");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -22,32 +22,59 @@ export default function LoginPage() {
 
     try {
       // Use API client and backend contract: POST /auth/login with JSON
-      const res = await axios.post("/auth/login", { username, password }, { skipSnake: true } as any);
+      // Added skipCamel to keep token names consistent with current localStorage logic
+      const res = await axios.post("/auth/login", { username, password }, { skipSnake: true, skipCamel: true } as any);
       const data = res.data;
 
-      // Save tokens as specified by contract
+      // Save tokens
       if (data.access_token) localStorage.setItem("access_token", data.access_token);
       if (data.refresh_token) localStorage.setItem("refresh_token", data.refresh_token);
       
-      // Save role from login response first (immediate)
+      // Save role from login response
       if (data.role) localStorage.setItem("role", data.role);
 
-      // Fetch user info to get more details and verify role
+      // Wait a bit for localStorage to persist
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Fetch user info to verify and redirect
       try {
         const userRes = await axios.get("/users/me");
         const user = userRes.data;
-        if (user?.role) localStorage.setItem("role", user.role);
-        if (user?.role === "Student") router.push("/portal");
-        else router.push("/");
+        
+        // Save user info to localStorage
+        if (user.id) localStorage.setItem("user_id", String(user.id));
+        if (user.fullName || user.full_name) {
+          localStorage.setItem("full_name", user.fullName || user.full_name);
+        }
+        if (user.username) localStorage.setItem("username", user.username);
+        
+        // Save role from user info if available
+        const roleFromUser = user.role || user?.roles?.[0]?.role?.name || user?.roles?.[0]?.name;
+        if (roleFromUser) localStorage.setItem("role", roleFromUser);
+        
+        // Delay to ensure localStorage is saved
+        const targetRole = roleFromUser || data.role;
+        setTimeout(() => {
+          window.location.href = targetRole === "Student" ? "/portal" : "/dashboard";
+        }, 100);
       } catch (e) {
-        // If user info not available, use role from login and go to homepage
+        // If user info not available, use role from login
         console.warn("Could not fetch user details, using role from login");
-        if (data.role === "Student") router.push("/portal");
-        else router.push("/");
+        setTimeout(() => {
+          window.location.href = data.role === "Student" ? "/portal" : "/dashboard";
+        }, 100);
       }
     
     } catch (err: any) {
-      setError(err.message);
+      console.error("Login error:", err);
+      const serverMsg = err.response?.data?.message || err.response?.data?.error;
+      if (err.response?.status === 401) {
+        setError("Sai tên đăng nhập hoặc mật khẩu. Vui lòng thử lại.");
+      } else if (serverMsg) {
+        setError(serverMsg);
+      } else {
+        setError("Đã có lỗi xảy ra khi kết nối tới máy chủ.");
+      }
     } finally {
       setLoading(false);
     }

@@ -2,14 +2,17 @@ from flask import Blueprint, request, jsonify
 from dependency_injector.wiring import inject, Provide
 from dependency_container import Container
 from services.user_service import UserService
+from services.system_auditlog_service import SystemAuditLogService
 from api.schemas.user_schema import UserSchema
-from api.middleware import token_required
+from api.middleware import token_required, role_required
 
 user_bp = Blueprint('user', __name__, url_prefix='/users')
 
 schema = UserSchema()
 
 @user_bp.route('/', methods=['GET', 'OPTIONS'], strict_slashes=False)
+@token_required
+@role_required(['Admin'])
 @inject
 def list_users(user_service: UserService = Provide[Container.user_service]):
     """Get all users
@@ -53,8 +56,12 @@ def get_user(id: int, user_service: UserService = Provide[Container.user_service
 
 
 @user_bp.route('/<int:id>', methods=['DELETE', 'OPTIONS'], strict_slashes=False)
+@token_required
+@role_required(['Admin'])
 @inject
-def delete_user(id: int, user_service: UserService = Provide[Container.user_service]):
+def delete_user(id: int, 
+                user_service: UserService = Provide[Container.user_service],
+                audit_service: SystemAuditLogService = Provide[Container.system_auditlog_service]):
     """
     Delete a user
     ---
@@ -74,9 +81,31 @@ def delete_user(id: int, user_service: UserService = Provide[Container.user_serv
         404:
           description: User not found
     """
+    # Get user info before deleting for logging
+    user = user_service.get_user_by_id(id)
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+    
+    # Delete the user
     success = user_service.delete_user(id)
     if not success:
-        return jsonify({'message': 'User not found'}), 404
+        return jsonify({'message': 'Failed to delete user'}), 500
+    
+    # Log the action
+    try:
+        # Get current user from token if available
+        current_user_id = getattr(request, 'user_id', None)
+        audit_service.create_log(
+            user_id=current_user_id,
+            action_type='DELETE_USER',
+            resource_target=f'User #{id} ({user.username})',
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent'),
+            details=f'Deleted user: {user.full_name} (Username: {user.username}, Email: {user.email})'
+        )
+    except Exception as e:
+        print(f"Failed to log audit: {e}")
+    
     return jsonify({'message': 'User deleted successfully'}), 200
 
 
@@ -110,8 +139,11 @@ def get_me(user_service: UserService = Provide[Container.user_service]):
     return jsonify(user_data), 200
 
 @user_bp.route('/', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@token_required
+@role_required(['Admin'])
 @inject
-def create_user(user_service: UserService = Provide[Container.user_service]):
+def create_user(user_service: UserService = Provide[Container.user_service],
+                audit_service: SystemAuditLogService = Provide[Container.system_auditlog_service]):
     """Create a new user
     ---
     post:
@@ -135,11 +167,30 @@ def create_user(user_service: UserService = Provide[Container.user_service]):
     if errors:
         return jsonify(errors), 400
     user = user_service.create_user(data)
+    
+    # Log the action
+    try:
+        current_user_id = getattr(request, 'user_id', None)
+        audit_service.create_log(
+            user_id=current_user_id,
+            action_type='CREATE_USER',
+            resource_target=f'User #{user.id} ({user.username})',
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent'),
+            details=f'Created new user: {user.full_name} (Username: {user.username}, Email: {user.email})'
+        )
+    except Exception as e:
+        print(f"Failed to log audit: {e}")
+    
     return jsonify(schema.dump(user)), 201
 
 @user_bp.route('/<int:id>', methods=['PUT', 'OPTIONS'], strict_slashes=False)
+@token_required
+@role_required(['Admin'])
 @inject
-def update_user(id: int, user_service: UserService = Provide[Container.user_service]):
+def update_user(id: int, 
+                user_service: UserService = Provide[Container.user_service],
+                audit_service: SystemAuditLogService = Provide[Container.system_auditlog_service]):
     """Update an existing user
     ---
     put:
@@ -173,4 +224,108 @@ def update_user(id: int, user_service: UserService = Provide[Container.user_serv
     user = user_service.update_user(id, data)
     if not user:
         return jsonify({'message': 'User not found'}), 404
+    
+    # Log the action
+    try:
+        current_user_id = getattr(request, 'user_id', None)
+        # Build details of what was updated
+        updated_fields = ', '.join([f"{k}={v}" for k, v in data.items() if k not in ['password', 'password_hash']])
+        audit_service.create_log(
+            user_id=current_user_id,
+            action_type='UPDATE_USER',
+            resource_target=f'User #{user.id} ({user.username})',
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent'),
+            details=f'Updated user: {user.full_name} - Changes: {updated_fields}'
+        )
+    except Exception as e:
+        print(f"Failed to log audit: {e}")
+    
     return jsonify(schema.dump(user)), 200
+
+
+@user_bp.route('/<int:user_id>/roles', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@inject
+def assign_roles_to_user(user_id: int, user_service: UserService = Provide[Container.user_service]):
+    """
+    Assign roles to a user
+    ---
+    post:
+      summary: Assign roles to user
+      tags:
+        - Users
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role_ids:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        200:
+          description: Roles assigned successfully
+        404:
+          description: User not found
+    """
+    # Handle OPTIONS request for CORS preflight
+    if request.method == 'OPTIONS':
+        response = jsonify({'message': 'OK'})
+        response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
+        response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Max-Age'] = '3600'
+        return response, 200
+    
+    from infrastructure.models.user_role_model import UserRole
+    from infrastructure.databases.mssql import session as db_session
+    
+    data = request.get_json() or {}
+    role_ids = data.get('role_ids', [])
+    
+    if not role_ids:
+        return jsonify({'message': 'No role_ids provided'}), 400
+    
+    # Check if user exists
+    user = user_service.get_user(user_id)
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+    
+    try:
+        # Remove existing roles for this user
+        deleted_count = db_session.query(UserRole).filter_by(user_id=user_id).delete(synchronize_session='fetch')
+        print(f"Deleted {deleted_count} existing roles for user {user_id}")
+        
+        # Add new roles
+        for role_id in role_ids:
+            user_role = UserRole(user_id=user_id, role_id=role_id)
+            db_session.add(user_role)
+            print(f"Added role {role_id} to user {user_id}")
+        
+        # Flush to get any errors before commit
+        db_session.flush()
+        
+        # Commit the transaction
+        db_session.commit()
+        
+        print(f"Successfully committed roles for user {user_id}")
+        return jsonify({
+            'message': 'Roles assigned successfully', 
+            'user_id': user_id,
+            'role_ids': role_ids
+        }), 200
+    except Exception as e:
+        db_session.rollback()
+        print(f"Error assigning roles: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'message': f'Error assigning roles: {str(e)}'}), 500

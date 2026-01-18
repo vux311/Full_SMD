@@ -1,5 +1,5 @@
 # Dependency Injection Container
-
+import os
 from dependency_injector import containers, providers
 from infrastructure.databases.mssql import SessionLocal
 
@@ -50,11 +50,19 @@ from infrastructure.repositories.notification_repository import NotificationRepo
 from services.notification_service import NotificationService
 from infrastructure.repositories.system_setting_repository import SystemSettingRepository
 from infrastructure.repositories.ai_auditlog_repository import AiAuditLogRepository
-from infrastructure.repositories.notification_repository import NotificationRepository
+from infrastructure.repositories.system_auditlog_repository import SystemAuditLogRepository
 from infrastructure.repositories.student_subscription_repository import StudentSubscriptionRepository
 from infrastructure.repositories.student_report_repository import StudentReportRepository
 from services.system_setting_service import SystemSettingService
+from services.ocr_service import OCRService
+from services.search_service import SearchService
+from services.system_auditlog_service import SystemAuditLogService
 from services.student_service import StudentService
+from services.email_service import EmailService
+from infrastructure.repositories.syllabus_snapshot_repository import SyllabusSnapshotRepository
+from services.syllabus_snapshot_service import SyllabusSnapshotService
+from infrastructure.repositories.syllabus_current_workflow_repository import SyllabusCurrentWorkflowRepository
+from services.analysis_service import AnalysisService
 
 class Container(containers.DeclarativeContainer):
     """Dependency Injection Container for SMD services."""
@@ -86,15 +94,21 @@ class Container(containers.DeclarativeContainer):
         "api.controllers.notification_controller",
         "api.controllers.system_setting_controller",
         "api.controllers.student_controller",
+        "api.controllers.admin_controller",
     ])
 
-    # Provide a session factory (creates new session per injection)
-    from infrastructure.databases.mssql import SessionLocal
-    db_session = providers.Factory(SessionLocal)
+    # Provide a request-scoped session (managed by SQLAlchemy scoped_session)
+    from infrastructure.databases.mssql import db_session as sqlalchemy_db_session
+    db_session = providers.Object(sqlalchemy_db_session)
 
     # Repositories
     subject_repository = providers.Factory(
         SubjectRepository,
+        session=db_session
+    )
+
+    syllabus_snapshot_repository = providers.Factory(
+        SyllabusSnapshotRepository,
         session=db_session
     )
 
@@ -239,15 +253,60 @@ class Container(containers.DeclarativeContainer):
         session=db_session
     )
 
+    system_auditlog_repository = providers.Factory(
+        SystemAuditLogRepository,
+        session=db_session
+    )
+
+    syllabus_current_workflow_repository = providers.Factory(
+        SyllabusCurrentWorkflowRepository,
+        session=db_session
+    )
+
     academic_year_service = providers.Factory(
         AcademicYearService,
         repository=academic_year_repository
+    )
+
+    analysis_service = providers.Factory(
+        AnalysisService,
+        syllabus_repository=syllabus_repository,
+        rel_repository=subject_relationship_repository
     )
 
     program_service = providers.Factory(
         ProgramService,
         repository=program_repository
     )
+
+    email_service = providers.Factory(
+        EmailService
+    )
+
+    # Move AI Service provider up so it can be used by syllabus_snapshot_service
+    from services.ai_service import AiService
+    ai_service = providers.Singleton(
+        AiService,
+        audit_repository=ai_auditlog_repository
+    )
+
+    syllabus_snapshot_service = providers.Factory(
+        SyllabusSnapshotService,
+        repository=syllabus_snapshot_repository,
+        ai_service=ai_service,
+        syllabus_repository=syllabus_repository
+    )
+
+    notification_service = providers.Factory(
+        NotificationService,
+        repository=notification_repository,
+        user_repository=user_repository,
+        email_service=email_service
+    )
+
+    ocr_service = providers.Factory(OCRService)
+    
+    search_service = providers.Singleton(SearchService)
 
     syllabus_service = providers.Factory(
         SyllabusService,
@@ -257,6 +316,7 @@ class Container(containers.DeclarativeContainer):
         academic_year_repository=academic_year_repository,
         user_repository=user_repository,
         workflow_log_repository=workflow_log_repository,
+        notification_service=notification_service,
         # NEW INJECTIONS:
         syllabus_clo_repository=syllabus_clo_repository,
         syllabus_material_repository=syllabus_material_repository,
@@ -264,7 +324,13 @@ class Container(containers.DeclarativeContainer):
         assessment_scheme_repository=assessment_scheme_repository,
         assessment_component_repository=assessment_component_repository,
         rubric_repository=rubric_repository,
-        assessment_clo_repository=assessment_clo_repository
+        assessment_clo_repository=assessment_clo_repository,
+        snapshot_service=syllabus_snapshot_service,
+        current_workflow_repository=syllabus_current_workflow_repository,
+        clo_plo_mapping_repository=clo_plo_mapping_repository,
+        program_outcome_repository=program_outcome_repository,
+        search_service=search_service,
+        student_subscription_repository=student_subscription_repository
     )
 
     syllabus_clo_service = providers.Factory(
@@ -344,12 +410,6 @@ class Container(containers.DeclarativeContainer):
         user_repository=user_repository
     )
 
-    notification_service = providers.Factory(
-        NotificationService,
-        repository=notification_repository,
-        user_repository=user_repository
-    )
-
     system_setting_service = providers.Factory(
         SystemSettingService,
         repository=system_setting_repository
@@ -358,14 +418,14 @@ class Container(containers.DeclarativeContainer):
     student_service = providers.Factory(
         StudentService, 
         sub_repo=student_subscription_repository,
-        report_repo=student_report_repository
+        report_repo=student_report_repository,
+        user_repo=user_repository,
+        notification_service=notification_service
     )
 
-    # AI Service (inject audit repository)
-    from services.ai_service import AiService
-    ai_service = providers.Factory(
-        AiService,
-        audit_repository=ai_auditlog_repository
+    system_auditlog_service = providers.Factory(
+        SystemAuditLogService,
+        repository=system_auditlog_repository
     )
 
     role_service = providers.Factory(

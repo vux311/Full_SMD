@@ -15,7 +15,7 @@ class AssessmentComponent(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     scheme_id = Column(BigInteger, ForeignKey('assessment_schemes.id'), nullable=False)
     name = Column(NVARCHAR(255), nullable=False)
-    weight = Column(DECIMAL(3, 1), nullable=False)
+    weight = Column(DECIMAL(5, 2), nullable=False)
     
     # Relationships
     scheme = relationship("AssessmentScheme", back_populates="components")

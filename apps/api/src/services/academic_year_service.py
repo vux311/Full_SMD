@@ -15,6 +15,15 @@ class AcademicYearService:
         return self.repository.create(data)
 
     def update_academic_year(self, id: int, data: dict):
+        # If activating this academic year, deactivate all others
+        if data.get('is_active') or data.get('isActive'):
+            all_years = self.repository.get_all()
+            for year in all_years:
+                if year.id != id and year.is_active:
+                    self.repository.update(year.id, {'is_active': False})
+            # Ensure the data uses snake_case for database
+            data['is_active'] = True
+            data.pop('isActive', None)  # Remove camelCase if present
         return self.repository.update(id, data)
 
     def delete_academic_year(self, id: int) -> bool:

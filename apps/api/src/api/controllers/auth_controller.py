@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from dependency_injector.wiring import inject, Provide
 from dependency_container import Container
 from services.user_service import UserService
+from services.system_auditlog_service import SystemAuditLogService
 from werkzeug.security import check_password_hash
 import jwt
 from datetime import datetime, timedelta
@@ -11,7 +12,8 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 
 @auth_bp.route('/login', methods=['POST', 'OPTIONS'], strict_slashes=False)
 @inject
-def login(user_service: UserService = Provide[Container.user_service]):
+def login(user_service: UserService = Provide[Container.user_service],
+          audit_service: SystemAuditLogService = Provide[Container.system_auditlog_service]):
     """
     Login and obtain a token
     ---
@@ -72,6 +74,19 @@ def login(user_service: UserService = Provide[Container.user_service]):
     }
     
     token = jwt.encode(payload, Config.SECRET_KEY, algorithm='HS256')
+    
+    # Log successful login
+    try:
+        audit_service.create_log(
+            user_id=user.id,
+            action_type='LOGIN',
+            resource_target=f'User #{user.id} ({user.username})',
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent'),
+            details=f'User logged in: {user.full_name} ({user.username})'
+        )
+    except Exception as e:
+        print(f"Failed to log audit: {e}")
     
     return jsonify({
         'access_token': token,

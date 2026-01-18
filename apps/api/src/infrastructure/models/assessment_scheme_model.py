@@ -15,7 +15,7 @@ class AssessmentScheme(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     syllabus_id = Column(BigInteger, ForeignKey('syllabuses.id', ondelete='CASCADE'), nullable=False)
     name = Column(NVARCHAR(100))
-    weight = Column(DECIMAL(3, 1))
+    weight = Column(DECIMAL(5, 2))
     
     # Relationships
     syllabus = relationship("Syllabus", back_populates="assessment_schemes")

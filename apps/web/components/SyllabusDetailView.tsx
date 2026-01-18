@@ -1,20 +1,56 @@
 "use client";
 
-import React, { useRef } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useReactToPrint } from "react-to-print";
-import { Printer, ArrowLeft, Pencil } from "lucide-react";
+import { Printer, ArrowLeft, Pencil, BrainCircuit, CheckCircle2, AlertCircle, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import VisualSubjectTree from "./VisualSubjectTree";
+import StudentActionButtons from "./StudentActionButtons";
+import SyllabusHistory from "./SyllabusHistory";
+import axios from "@/lib/axios";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+
 // QUAN TRỌNG: Import đúng đường dẫn
 import { SyllabusData } from "./Types"; 
 
-export default function SyllabusDetailView({ syllabus }: { syllabus: SyllabusData }) {
+export default function SyllabusDetailView({ 
+  syllabus, 
+  hideManagementButtons = false,
+  hideStudentActions = false
+}: { 
+  syllabus: SyllabusData, 
+  hideManagementButtons?: boolean,
+  hideStudentActions?: boolean
+}) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<any>(null);
   
   const handlePrint = useReactToPrint({
     contentRef: contentRef,
     documentTitle: `${syllabus.subjectCode}_Syllabus`,
   });
+
+  const analyzeAlignment = async () => {
+    setAnalyzing(true);
+    try {
+      const res = await axios.post("/ai/analyze-alignment", { syllabus_id: syllabus.id });
+      setAnalysisResult(res.data);
+    } catch (err) {
+      console.error(err);
+      alert("Lỗi khi phân tích: " + (err as any).message);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   const printStyle = `
     @page { size: A4; margin: 20mm 20mm 20mm 20mm; } 
@@ -32,10 +68,82 @@ export default function SyllabusDetailView({ syllabus }: { syllabus: SyllabusDat
       <style>{printStyle}</style>
       
       <div className="max-w-[210mm] mx-auto mb-4 flex justify-between print:hidden">
-         <Link href="/"><Button variant="ghost"><ArrowLeft className="mr-2 h-4 w-4" /> Quay lại</Button></Link>
+         {!hideManagementButtons ? (
+           <Link href="/"><Button variant="ghost"><ArrowLeft className="mr-2 h-4 w-4" /> Quay lại</Button></Link>
+         ) : <div></div>}
          <div className="flex gap-2">
-            <Link href={`/syllabus/${syllabus.id}/edit`}><Button variant="outline"><Pencil className="mr-2 h-4 w-4" /> Chỉnh sửa</Button></Link>
+            {!hideManagementButtons && (
+              <>
+              <Link href={`/syllabus/${syllabus.id}/edit`}><Button variant="outline"><Pencil className="mr-2 h-4 w-4" /> Chỉnh sửa</Button></Link>
+              
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button variant="secondary" onClick={analyzeAlignment} disabled={analyzing}>
+                    <BrainCircuit className="mr-2 h-4 w-4" /> 
+                    {analyzing ? "Đang phân tích..." : "AI Alignment"}
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <BrainCircuit className="w-5 h-5 text-purple-600" />
+                        Phân tích ma trận CLO-PLO (AI)
+                      </DialogTitle>
+                    </DialogHeader>
+                    
+                    {analysisResult ? (
+                      <div className="space-y-4 py-4">
+                        <div className="flex items-center justify-between bg-slate-50 p-4 rounded-lg border">
+                          <div className="font-semibold">Điểm phù hợp tổng quát:</div>
+                          <div className={`text-2xl font-bold ${analysisResult.overall_score > 70 ? 'text-green-600' : 'text-amber-500'}`}>
+                            {analysisResult.overall_score}%
+                          </div>
+                        </div>
+
+                        <div>
+                          <h4 className="font-bold flex items-center gap-1 mb-2">
+                             <CheckCircle2 className="w-4 h-4 text-green-500" /> Điểm mạnh
+                          </h4>
+                          <ul className="list-disc pl-5 text-sm space-y-1">
+                            {analysisResult.strengths?.map((s: string, i: number) => <li key={i}>{s}</li>)}
+                          </ul>
+                        </div>
+
+                        <div>
+                          <h4 className="font-bold flex items-center gap-1 mb-2">
+                             <AlertCircle className="w-4 h-4 text-amber-500" /> Điểm cần cải thiện
+                          </h4>
+                          <ul className="list-disc pl-5 text-sm space-y-1">
+                            {analysisResult.weaknesses?.map((w: string, i: number) => <li key={i}>{w}</li>)}
+                          </ul>
+                        </div>
+
+                        <div className="bg-blue-50 p-4 rounded-lg text-sm italic border-l-4 border-blue-400">
+                          {analysisResult.analysis}
+                        </div>
+
+                        <div className="space-y-2">
+                          <h4 className="font-bold text-sm">Gợi ý từ chuyên gia AI:</h4>
+                          {analysisResult.suggestions?.map((s: any, i: number) => (
+                            <div key={i} className="p-3 bg-white border rounded text-xs">
+                              {s.clo && <Badge variant="outline" className="mb-1">{s.clo}</Badge>}
+                              {s.plo && <Badge variant="outline" className="mb-1 bg-purple-50">{s.plo}</Badge>}
+                              <p className="text-gray-700">{s.suggestion || s.issue}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="py-12 text-center animate-pulse">
+                        Đang lấy ý kiến từ chuyên gia AI...
+                      </div>
+                    )}
+                </DialogContent>
+              </Dialog>
+              </>
+            )}
             <Button onClick={() => handlePrint()}><Printer className="mr-2 h-4 w-4" /> Xuất PDF / In</Button>
+            {syllabus.id && <SyllabusHistory syllabusId={syllabus.id} />}
          </div>
       </div>
 
@@ -47,6 +155,39 @@ export default function SyllabusDetailView({ syllabus }: { syllabus: SyllabusDat
                 <div className="uppercase text-[14pt] mt-2">ĐỀ CƯƠNG CHI TIẾT HỌC PHẦN</div>
                 <div className="italic font-normal text-[12pt]">(COURSE SYLLABUS)</div>
             </div>
+
+            {/* Workflow & Deadline Banner */}
+            {syllabus.status !== 'Draft' && syllabus.status !== 'Approved' && syllabus.status !== 'Published' && (
+              <div className="mb-6 p-4 rounded-lg border bg-slate-50 flex items-center justify-between print:hidden">
+                <div className="flex items-center gap-4">
+                  <div>
+                    <div className="text-xs text-muted-foreground uppercase font-semibold">Trạng thái</div>
+                    <Badge variant={syllabus.status === 'Returned' ? 'destructive' : 'secondary'}>
+                      {syllabus.status}
+                    </Badge>
+                  </div>
+                  {syllabus.dueDate && (
+                    <div>
+                      <div className="text-xs text-muted-foreground uppercase font-semibold flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> Hạn duyệt
+                      </div>
+                      <div className={`text-sm font-bold ${new Date(syllabus.dueDate) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
+                        {new Date(syllabus.dueDate).toLocaleDateString('vi-VN')}
+                      </div>
+                    </div>
+                  )}
+                  {syllabus.assignedTo && (
+                    <div>
+                      <div className="text-xs text-muted-foreground uppercase font-semibold">Đang chờ xử lý bởi</div>
+                      <div className="text-sm font-medium">{syllabus.assignedTo}</div>
+                    </div>
+                  )}
+                </div>
+                {new Date(syllabus.dueDate || '') < new Date() && (
+                   <Badge variant="destructive" className="animate-pulse">QUÁ HẠN</Badge>
+                )}
+              </div>
+            )}
 
             {/* 1. THÔNG TIN CHUNG */}
             <div className="mb-4">
@@ -91,6 +232,34 @@ export default function SyllabusDetailView({ syllabus }: { syllabus: SyllabusDat
                         <tr><td>Thuộc thành phần</td><td colSpan={5}>{syllabus.componentType}</td></tr>
                     </tbody>
                 </table>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 text-xs italic mb-6">
+                <div>
+                   <p><b>Chương trình đào tạo:</b> {syllabus.programName || "Chưa xác định"}</p>
+                   <p><b>Năm học áp dụng:</b> {syllabus.academicYearName || "Chưa xác định"}</p>
+                </div>
+                <div>
+                   <p><b>Giảng viên biên soạn:</b> {syllabus.lecturer || "Giảng viên"}</p>
+                   <p><b>Phiên bản:</b> {syllabus.version || "1.0"}</p>
+                </div>
+            </div>
+
+            {/* BẢN ĐỒ MÔN HỌC (Visual Subject Tree) */}
+            <div className="mb-4 space-y-4 print:hidden">
+                {/* Tính năng sinh viên: Tóm tắt AI, Theo dõi, Báo lỗi */}
+                {!hideStudentActions && (
+                    <StudentActionButtons 
+                        syllabusId={syllabus.id!} 
+                        subjectId={syllabus.subjectId!} 
+                        subjectCode={syllabus.subjectCode}
+                    />
+                )}
+
+                <VisualSubjectTree 
+                    subjectId={syllabus.subjectId!} 
+                    currentSubjectName={syllabus.subjectNameVi} 
+                />
             </div>
 
             {/* 2. MÔ TẢ */}
@@ -180,7 +349,7 @@ export default function SyllabusDetailView({ syllabus }: { syllabus: SyllabusDat
                          <tr className="font-bold bg-gray-50"><td colSpan={5}>PHẦN LÝ THUYẾT</td></tr>
                         {syllabus.teachingPlan.map((row, i) => (
                             <tr key={i}>
-                                <td className="text-center">{row.week}</td><td className="whitespace-pre-line">{row.content}</td><td className="text-center">{row.clos}</td><td className="text-center whitespace-pre-line">{row.activity}</td><td className="text-center">{row.assessment}</td>
+                                <td className="text-center">{row.week}</td><td className="whitespace-pre-line">{row.topic}</td><td className="text-center">{row.clos}</td><td className="text-center whitespace-pre-line">{row.activity}</td><td className="text-center">{row.assessment}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -192,11 +361,11 @@ export default function SyllabusDetailView({ syllabus }: { syllabus: SyllabusDat
                 <h3 className="font-bold mb-1">8. Tài liệu học tập (Course materials)</h3>
                 <div className="font-bold pl-0">8.1. Tài liệu chính (Main materials)</div>
                 <div className="pl-4 mb-2">
-                    {syllabus.materials.filter(m => m.type === 'Main').map((m, i) => <div key={i}>[{i+1}] {m.content}</div>)}
+                    {syllabus.materials.filter(m => m.type === 'Main').map((m, i) => <div key={i}>[{i+1}] {m.title}</div>)}
                 </div>
                 <div className="font-bold pl-0">8.2. Tài liệu tham khảo (References materials)</div>
                 <div className="pl-4">
-                    {syllabus.materials.filter(m => m.type === 'Ref').map((m, i) => <div key={i}>[{i+1}] {m.content}</div>)}
+                    {syllabus.materials.filter(m => m.type === 'Ref').map((m, i) => <div key={i}>[{i+1}] {m.title}</div>)}
                 </div>
             </div>
 

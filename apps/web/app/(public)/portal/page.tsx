@@ -20,11 +20,45 @@ interface SyllabusPublic {
   dateEdited: string;
 }
 
+interface Program {
+  id: number;
+  name: string;
+  code: string;
+}
+
+interface AcademicYear {
+  id: number;
+  code: string;
+}
+
 export default function StudentHomePage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [results, setResults] = useState<SyllabusPublic[]>([]);
   const [loading, setLoading] = useState(false);
   const [debouncedTerm, setDebouncedTerm] = useState(searchTerm);
+
+  // States for filters
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
+  const [selectedProgram, setSelectedProgram] = useState<string>("");
+  const [selectedYear, setSelectedYear] = useState<string>("");
+
+  useEffect(() => {
+    // Fetch filter data
+    const fetchFilters = async () => {
+        try {
+            const [pRes, aRes] = await Promise.all([
+                fetch(`${process.env.NEXT_PUBLIC_API_URL}/programs`),
+                fetch(`${process.env.NEXT_PUBLIC_API_URL}/academic-years`)
+            ]);
+            if (pRes.ok) setPrograms(await pRes.json());
+            if (aRes.ok) setAcademicYears(await aRes.json());
+        } catch (e) {
+            console.error("Error fetching filters:", e);
+        }
+    };
+    fetchFilters();
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedTerm(searchTerm), 500);
@@ -35,14 +69,18 @@ export default function StudentHomePage() {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/public/syllabus?search=${encodeURIComponent(debouncedTerm)}`);
+            let url = `${process.env.NEXT_PUBLIC_API_URL}/public/syllabus?search=${encodeURIComponent(debouncedTerm)}`;
+            if (selectedProgram) url += `&program_id=${selectedProgram}`;
+            if (selectedYear) url += `&academic_year_id=${selectedYear}`;
+
+            const res = await fetch(url);
             const data = await res.json();
             setResults(data.data || []);
         } catch(e) { console.error(e); } 
         finally { setLoading(false); }
     };
     fetchData();
-  }, [debouncedTerm]);
+  }, [debouncedTerm, selectedProgram, selectedYear]);
 
   return (
     <div className="space-y-12 pb-20">
@@ -63,6 +101,45 @@ export default function StudentHomePage() {
                 onChange={(e) => setSearchTerm(e.target.value)}
             />
             {loading && <div className="absolute right-4 top-4"><Loader2 className="w-4 h-4 animate-spin text-gray-400"/></div>}
+        </div>
+
+        <div className="max-w-2xl mx-auto mt-6 flex flex-wrap justify-center gap-4">
+            <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-slate-600">Ngành:</span>
+                <select 
+                    className="h-9 rounded-md border border-teal-100 bg-white px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    value={selectedProgram}
+                    onChange={(e) => setSelectedProgram(e.target.value)}
+                >
+                    <option value="">Tất cả ngành</option>
+                    {programs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+            </div>
+            <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-slate-600">Năm học:</span>
+                <select 
+                    className="h-9 rounded-md border border-teal-100 bg-white px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(e.target.value)}
+                >
+                    <option value="">Tất cả năm</option>
+                    {academicYears.map(y => <option key={y.id} value={y.id}>{y.code}</option>)}
+                </select>
+            </div>
+            {(selectedProgram || selectedYear || searchTerm) && (
+                <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="text-teal-600 hover:text-teal-700 hover:bg-teal-50"
+                    onClick={() => {
+                        setSearchTerm("");
+                        setSelectedProgram("");
+                        setSelectedYear("");
+                    }}
+                >
+                    Xóa lọc
+                </Button>
+            )}
         </div>
       </div>
 

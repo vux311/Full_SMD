@@ -5,3 +5,6 @@ class DepartmentSchema(Schema):
     faculty_id = fields.Int(required=True)
     code = fields.Str(required=True)
     name = fields.Str(required=True)
+    
+    # Nested faculty info
+    faculty = fields.Nested('FacultySchema', only=('id', 'name', 'code'), dump_only=True)

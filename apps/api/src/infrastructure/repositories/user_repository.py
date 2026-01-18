@@ -51,6 +51,20 @@ class UserRepository:
         user = self.get_by_id(id)
         if not user:
             return False
+        
+        # Delete related user_roles entries first (junction table)
+        from infrastructure.models.user_role_model import UserRole
+        self.session.query(UserRole).filter(UserRole.user_id == id).delete()
+        
+        # Now delete the user
         self.session.delete(user)
         self.session.commit()
         return True 
+    def get_users_by_role(self, role_name: str) -> List[User]:
+        from infrastructure.models.user_role_model import UserRole
+        from infrastructure.models.role_model import Role
+        return (self.session.query(User)
+                .join(UserRole, User.id == UserRole.user_id)
+                .join(Role, UserRole.role_id == Role.id)
+                .filter(Role.name == role_name)
+                .all())

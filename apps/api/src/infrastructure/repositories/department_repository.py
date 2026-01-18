@@ -8,7 +8,8 @@ class DepartmentRepository:
         self.session = session
 
     def get_all(self) -> List[Department]:
-        return self.session.query(Department).all()
+        from sqlalchemy.orm import joinedload
+        return self.session.query(Department).options(joinedload(Department.faculty)).all()
 
     def get_by_id(self, id: int) -> Optional[Department]:
         return self.session.query(Department).filter_by(id=id).first()

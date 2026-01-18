@@ -11,6 +11,14 @@ schema = FileSchema()
 @file_bp.route('/upload', methods=['POST', 'OPTIONS'], strict_slashes=False)
 @inject
 def upload_file(service: FileService = Provide[Container.file_service]):
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        response = jsonify({'message': 'OK'})
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin', '*'))
+        response.headers.add('Access-Control-Allow-Headers', 'Authorization, Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        return response, 200
+    
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
     file = request.files['file']

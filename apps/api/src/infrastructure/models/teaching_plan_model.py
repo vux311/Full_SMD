@@ -16,6 +16,7 @@ class TeachingPlan(Base):
     syllabus_id = Column(BigInteger, ForeignKey('syllabuses.id', ondelete='CASCADE'), nullable=False)
     week = Column(Integer)
     topic = Column(UnicodeText)
+    clos = Column(UnicodeText)  # Added to store associated CLOs
     activity = Column(UnicodeText)
     assessment = Column(UnicodeText)
     

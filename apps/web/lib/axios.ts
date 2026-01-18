@@ -1,6 +1,6 @@
 import axios, { AxiosRequestConfig, InternalAxiosRequestConfig } from "axios";
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9999";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
 function isPlainObject(value: any) {
   return Object.prototype.toString.call(value) === "[object Object]";
@@ -21,9 +21,29 @@ function convertKeysToSnake(obj: any): any {
   return out;
 }
 
-// Extend InternalAxiosRequestConfig to support skipSnake option
+function toCamelCase(str: string) {
+  return str.replace(/([-_][a-z])/ig, ($1) => {
+    return $1.toUpperCase()
+      .replace('-', '')
+      .replace('_', '');
+  });
+}
+
+function convertKeysToCamel(obj: any): any {
+  if (Array.isArray(obj)) return obj.map(convertKeysToCamel);
+  if (!isPlainObject(obj)) return obj;
+  const out: any = {};
+  for (const key of Object.keys(obj)) {
+    const camelKey = toCamelCase(key);
+    out[camelKey] = convertKeysToCamel((obj as any)[key]);
+  }
+  return out;
+}
+
+// Extend InternalAxiosRequestConfig to support skipSnake and skipCamel option
 export interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig<any> {
   skipSnake?: boolean;
+  skipCamel?: boolean;
 }
 
 const instance = axios.create({
@@ -37,7 +57,11 @@ instance.interceptors.request.use((config: CustomAxiosRequestConfig) => {
     // Attach token if in browser
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("access_token");
-      if (token) (config.headers as any)["Authorization"] = `Bearer ${token}`;
+      if (token && config.headers) {
+        // Use standard header setting
+        config.headers.Authorization = `Bearer ${token}`;
+        console.debug("Requesting with token:", config.url);
+      }
     }
 
     const method = (config.method || "get").toLowerCase();
@@ -53,10 +77,40 @@ instance.interceptors.request.use((config: CustomAxiosRequestConfig) => {
   return config;
 });
 
-// Response interceptor: pass through (backend returns camelCase per contract)
+// Response interceptor: handle errors and convert body keys to camelCase
 instance.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    const config = res.config as CustomAxiosRequestConfig;
+    if (config.skipCamel !== true && res.data && (isPlainObject(res.data) || Array.isArray(res.data))) {
+      res.data = convertKeysToCamel(res.data);
+    }
+    return res;
+  },
   (err) => {
+    // Handle 401 Unauthorized - token expired
+    if (err.response?.status === 401) {
+      console.error("⚠️ Bị lỗi 401 ở đây nè:", err.config?.url);
+      if (typeof window !== "undefined") {
+        const currentPath = window.location.pathname;
+        // Don't redirect if already on login page
+        if (currentPath !== "/login") {
+          // localStorage.removeItem("access_token");
+          // localStorage.removeItem("refresh_token");
+          // localStorage.removeItem("role");
+          // window.location.href = "/login";
+        }
+      }
+    }
+    
+    // Handle 403 Forbidden - no permission
+    if (err.response?.status === 403) {
+      const message = err.response?.data?.message || "Bạn không có quyền thực hiện hành động này";
+      console.warn("403 Forbidden:", message);
+      
+      // Add user-friendly message to error for components to use
+      err.userMessage = message;
+    }
+    
     return Promise.reject(err);
   }
 );

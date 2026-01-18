@@ -55,6 +55,8 @@ def create_material(syllabus_material_service: SyllabusMaterialService = Provide
       400:
         description: Validation or creation error
     """
+    if request.method == 'OPTIONS':
+        return '', 200
     data = request.get_json() or {}
     errors = schema.validate(data)
     if errors:

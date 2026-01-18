@@ -43,6 +43,16 @@ export default function Dashboard() {
   
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
+  
+  // Get user role
+  const [userRole, setUserRole] = useState<string>("");
+  
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const role = localStorage.getItem("role") || "";
+      setUserRole(role);
+    }
+  }, []);
 
   const fetchData = useCallback(async (page: number, keyword: string) => {
     setLoading(true);
@@ -134,7 +144,7 @@ export default function Dashboard() {
                   <TableHead>Tín chỉ</TableHead>
                   <TableHead>Giảng viên</TableHead>
                   <TableHead>Trạng thái</TableHead>
-                  <TableHead className="text-right">Hành động</TableHead>
+                  <TableHead className="text-right">Hành động</TableHead> 
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -172,13 +182,17 @@ export default function Dashboard() {
                             <Link href={`/syllabus/${s.id}`}>
                                 <Button variant="ghost" size="icon" title="Xem chi tiết"><Eye className="w-4 h-4" /></Button>
                             </Link>
-                            {(s.status === "Draft" || s.status === "Returned") && (
+                            
+                            {/* Edit - chỉ Lecturer và Admin, và chỉ khi Draft/Returned */}
+                            {(userRole === "Lecturer" || userRole === "Admin") && 
+                             (s.status === "Draft" || s.status === "Returned") && (
                                 <Link href={`/syllabus/${s.id}/edit`}>
-                                    {/* SỬA: text-blue-600 -> text-teal-600 */}
                                     <Button variant="ghost" size="icon" title="Chỉnh sửa"><Edit className="w-4 h-4 text-teal-600" /></Button>
                                 </Link>
                             )}
-                            {s.status === "Draft" && (
+                            
+                            {/* Delete - chỉ Admin */}
+                            {userRole === "Admin" && s.status === "Draft" && (
                                 <div className="scale-90"><SyllabusDeleteButton id={s.id} /></div>
                             )}
                         </div>

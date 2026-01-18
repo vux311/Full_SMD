@@ -3,6 +3,7 @@ from dependency_injector.wiring import inject, Provide
 from dependency_container import Container
 from services.department_service import DepartmentService
 from api.schemas.department_schema import DepartmentSchema
+from api.middleware import token_required, role_required
 
 department_bp = Blueprint('department', __name__, url_prefix='/departments')
 
@@ -51,6 +52,8 @@ def get_department(id: int, department_service: DepartmentService = Provide[Cont
     return jsonify(schema.dump(department)), 200
 
 @department_bp.route('/', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@token_required
+@role_required(['Admin', 'Academic Affairs'])
 @inject
 def create_department(department_service: DepartmentService = Provide[Container.department_service]):
     """Create a new department
@@ -72,13 +75,16 @@ def create_department(department_service: DepartmentService = Provide[Container.
           description: Invalid input
     """
     data = request.get_json() or {}
-    errors = schema.validate(data)
-    if errors:
-        return jsonify(errors), 400
-    department = department_service.create_department(data)
+    try:
+        loaded_data = schema.load(data)
+    except Exception as e:
+        return jsonify(getattr(e, 'messages', str(e))), 400
+    department = department_service.create_department(loaded_data)
     return jsonify(schema.dump(department)), 201
 
 @department_bp.route('/<int:id>', methods=['PUT', 'OPTIONS'], strict_slashes=False)
+@token_required
+@role_required(['Admin', 'Academic Affairs'])
 @inject
 def update_department(id: int, department_service: DepartmentService = Provide[Container.department_service]):
     """Update an existing department
@@ -108,10 +114,12 @@ def update_department(id: int, department_service: DepartmentService = Provide[C
           description: Department not found
     """
     data = request.get_json() or {}
-    errors = schema.validate(data)
-    if errors:
-        return jsonify(errors), 400
-    department = department_service.update_department(id, data)
+    try:
+        loaded_data = schema.load(data, partial=True)
+    except Exception as e:
+        return jsonify(getattr(e, 'messages', str(e))), 400
+    
+    department = department_service.update_department(id, loaded_data)
     if not department:
         return jsonify({'message': 'Department not found'}), 404
     return jsonify(schema.dump(department)), 200

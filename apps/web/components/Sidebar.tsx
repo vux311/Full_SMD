@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
 import { 
     LayoutDashboard, 
     FilePlus2, 
@@ -12,25 +13,29 @@ import {
     Menu,
     UserCog,
     FileClock,
-    Settings
+    Settings,
+    GraduationCap,
+    Building,
+    Users,
+    Bell,
+    Search,
+    MessageSquareWarning
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const [role, setRole] = useState("");
+  const { role, isLoading } = useAuth();
 
-  useEffect(() => {
-    const userRole = localStorage.getItem("role") || "";
-    console.log("Sidebar - User role from localStorage:", userRole);
-    setRole(userRole);
-  }, []);
+  if (isLoading) {
+    return null; // Hoặc skeleton loader
+  }
 
   const menuItems = [
     { 
         name: "Dashboard", 
-        href: "/", 
+        href: "/dashboard", 
         icon: LayoutDashboard,
         roles: ["ALL"] 
     },
@@ -38,24 +43,48 @@ export default function Sidebar() {
         name: "Biên soạn đề cương", 
         href: "/syllabus/create", 
         icon: FilePlus2,
-        roles: ["Lecturer", "Head of Dept", "Admin"] 
+        roles: ["Lecturer", "Admin"] 
     },
     { 
         name: "Yêu cầu phê duyệt", 
         href: "/reviews", 
         icon: FileCheck,
-        roles: ["Head of Dept", "Academic Affairs", "Admin"] 
+        roles: ["Head of Dept", "Academic Affairs", "Principal", "Admin", "HoD", "AA"] 
+    },
+    { 
+        name: "Quản lý Chương trình", 
+        href: "/admin/programs", 
+        icon: GraduationCap,
+        roles: ["Academic Affairs", "Admin", "AA"] 
+    },
+    { 
+        name: "Quản lý Học phần", 
+        href: "/admin/subjects", 
+        icon: BookOpen,
+        roles: ["Academic Affairs", "Admin", "AA"] 
+    },
+    { 
+        name: "Quản lý Khoa/BM", 
+        href: "/admin/departments", 
+        icon: Building,
+        roles: ["Academic Affairs", "Admin", "AA"] 
+    },
+    { 
+        name: "Phản hồi/Báo lỗi", 
+        href: "/admin/reports", 
+        icon: MessageSquareWarning,
+        roles: ["Admin", "Head of Dept", "HoD", "Academic Affairs", "AA"] 
+    },
+    { 
+        name: "Số hóa & Search AI", 
+        href: "/admin/search", 
+        icon: Search,
+        roles: ["Admin", "Academic Affairs", "AA"] 
     },
     { 
         name: "Quản trị User", 
         href: "/admin/users", 
-        icon: UserCog,
-        roles: ["Admin"] 
-    },
-    { 
-        name: "Cấu hình hệ thống",
-        href: "/admin/settings", 
-        icon: Settings,
+        icon: Users,
         roles: ["Admin"] 
     },
     { 
@@ -65,10 +94,16 @@ export default function Sidebar() {
         roles: ["Admin"] 
     },
     { 
-        name: "Cổng sinh viên", 
+        name: "Tìm kiếm đề cương", 
         href: "/portal", 
-        icon: BookOpen,
-        roles: ["ALL"] 
+        icon: Search,
+        roles: ["Student", "ALL"] 
+    },
+    { 
+        name: "Theo dõi của tôi", 
+        href: "/portal/subscriptions", 
+        icon: Bell,
+        roles: ["Student"] 
     },
     { 
         name: "Hồ sơ cá nhân", 
@@ -79,10 +114,8 @@ export default function Sidebar() {
   ];
 
   const filteredMenu = menuItems.filter(item => 
-    item.roles.includes("ALL") || item.roles.includes(role)
+    item.roles.includes("ALL") || item.roles.includes(role || "")
   );
-  
-  console.log("Sidebar - Filtering menu items. Role:", role, "Filtered count:", filteredMenu.length);
 
   const NavContent = () => (
     <div className="flex flex-col h-full">
@@ -95,11 +128,11 @@ export default function Sidebar() {
         </div>
         
         <nav className="flex-1 space-y-1">
-          {filteredMenu.map((m) => {
+          {filteredMenu.map((m, idx) => {
             const isActive = pathname === m.href;
             return (
                 <Link
-                  key={m.href}
+                  key={`${m.href}-${idx}`}
                   href={m.href}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
                     ${isActive 

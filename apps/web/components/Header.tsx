@@ -2,21 +2,21 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useAuth } from "@/contexts/AuthContext";
+import { useNotifications } from "@/contexts/NotificationContext";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { LogOut, Bell } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import axios from "@/lib/axios";
+import axios, { API_BASE } from "@/lib/axios";
 
 export default function Header() {
   const router = useRouter();
-  const [user, setUser] = useState<{ full_name: string; role: string } | null>(null);
+  const { setRole: setAuthRole, setUserId, logout } = useAuth();
+  const { notifications, unreadCount, markAsRead } = useNotifications();
+  const [user, setUser] = useState<{ fullName: string; roles?: { id: number; name: string }[]; avatarFileId?: number } | null>(null);
   const [academicYear, setAcademicYear] = useState("Loading...");
   
-  // State cho thông báo
-  const [notifications, setNotifications] = useState<any[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-
   // Hàm fetch user & info
   useEffect(() => {
     const fetchData = async () => {
@@ -28,58 +28,43 @@ export default function Header() {
         const userRes = await axios.get("/users/me");
         const userData = userRes.data;
         setUser(userData);
-        if (userData?.role) localStorage.setItem("role", userData.role);
+
+        if (userData?.id) {
+          setUserId(userData.id.toString());
+        }
+
+        // Store role in context
+        if (userData?.role) {
+          setAuthRole(userData.role);
+        } else if (userData?.roles && userData.roles.length > 0) {
+          // Fallback if role string is missing but roles array exists
+          const roleName = userData.roles[0].role?.name || userData.roles[0].name;
+          if (roleName) setAuthRole(roleName);
+        }
 
         // Lấy Năm học
         try {
-          const sysRes = await axios.get("/system-settings/");
-          const settings = Array.isArray(sysRes.data) ? sysRes.data : [];
-          const activeYear = settings.find((s: any) => s.key === 'active_academic_year');
-          setAcademicYear(activeYear?.value || "Chưa cấu hình");
+          const yearRes = await axios.get("/academic-years/");
+          const years = Array.isArray(yearRes.data) ? yearRes.data : [];
+          const activeYear = years.find((y: any) => y.is_active || y.isActive);
+          setAcademicYear(activeYear?.code || "Chưa cấu hình");
         } catch (e) { /* ignore */ }
       } catch (err: any) {
-        console.error(err);
-        localStorage.removeItem("access_token");
-        router.push("/login");
+        console.error("Header fetchData error:", err);
       }
     };
     fetchData();
   }, [router]);
 
-  // Hàm fetch thông báo (Polling)
-  const fetchNotifications = async () => {
-      try {
-          const dataRes = await axios.get("/notifications");
-          const data = dataRes.data;
-          // Backend returns array directly
-          const notifs = Array.isArray(data) ? data : [];
-          setNotifications(notifs);
-          setUnreadCount(notifs.filter((n: any) => !n.is_read).length);
-      } catch(e) { console.error(e); }
-  };
-
-  useEffect(() => {
-      fetchNotifications();
-      const interval = setInterval(fetchNotifications, 15000); // Tự động check mỗi 15s
-      return () => clearInterval(interval);
-  }, []);
-
   const handleRead = async (notif: any) => {
       if(!notif.is_read) {
-          try {
-            await axios.put(`/notifications/${notif.id}/read`);
-            setUnreadCount(prev => Math.max(0, prev - 1));
-            setNotifications(prev => prev.map(n => n.id === notif.id ? {...n, is_read: true} : n));
-          } catch(e) { console.error(e); }
+          await markAsRead(notif.id);
       }
       if(notif.link) router.push(notif.link);
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
-    localStorage.removeItem("role");
-    router.push("/login");
+    logout();
   };
 
   return (
@@ -132,12 +117,19 @@ export default function Header() {
 
                 {/* --- USER INFO --- */}
                 <div className="text-right hidden md:block">
-                    <div className="text-sm font-bold">{user.full_name}</div>
-                    <div className="text-xs text-muted-foreground">{user.role}</div>
+                    <div className="text-sm font-bold">{user.fullName}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {user.roles && user.roles.length > 0 
+                        ? user.roles.map(r => r.name).join(", ") 
+                        : "Chưa có vai trò"}
+                    </div>
                 </div>
                 <Avatar>
-                    <AvatarFallback className={user.role === "Lecturer" ? "bg-teal-100 text-teal-600" : "bg-purple-100 text-purple-600"}>
-                        {user.role === "Lecturer" ? "GV" : "NV"}
+                    {user.avatarFileId ? (
+                        <AvatarImage src={`${API_BASE}/files/${user.avatarFileId}`} />
+                    ) : null}
+                    <AvatarFallback className={user.roles?.[0]?.name === "Lecturer" ? "bg-teal-100 text-teal-600" : "bg-purple-100 text-purple-600"}>
+                        {user.fullName?.substring(0, 2).toUpperCase() || (user.roles?.[0]?.name === "Lecturer" ? "GV" : "NV")}
                     </AvatarFallback>
                 </Avatar>
                 <Button variant="ghost" size="icon" onClick={handleLogout} title="Logout">
