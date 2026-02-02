@@ -10,9 +10,8 @@ user_bp = Blueprint('user', __name__, url_prefix='/users')
 
 schema = UserSchema()
 
-@user_bp.route('/', methods=['GET', 'OPTIONS'], strict_slashes=False)
+@user_bp.route('/', methods=['GET'], strict_slashes=False)
 @token_required
-@role_required(['Admin'])
 @inject
 def list_users(user_service: UserService = Provide[Container.user_service]):
     """Get all users
@@ -28,7 +27,7 @@ def list_users(user_service: UserService = Provide[Container.user_service]):
     users = user_service.list_users()
     return jsonify(schema.dump(users, many=True)), 200
 
-@user_bp.route('/<int:id>', methods=['GET', 'OPTIONS'], strict_slashes=False)
+@user_bp.route('/<int:id>', methods=['GET'], strict_slashes=False)
 @inject
 def get_user(id: int, user_service: UserService = Provide[Container.user_service]):
     """Get user by id
@@ -55,7 +54,7 @@ def get_user(id: int, user_service: UserService = Provide[Container.user_service
     return jsonify(schema.dump(user)), 200
 
 
-@user_bp.route('/<int:id>', methods=['DELETE', 'OPTIONS'], strict_slashes=False)
+@user_bp.route('/<int:id>', methods=['DELETE'], strict_slashes=False)
 @token_required
 @role_required(['Admin'])
 @inject
@@ -109,7 +108,7 @@ def delete_user(id: int,
     return jsonify({'message': 'User deleted successfully'}), 200
 
 
-@user_bp.route('/me', methods=['GET', 'OPTIONS'], strict_slashes=False)
+@user_bp.route('/me', methods=['GET'], strict_slashes=False)
 @inject
 @token_required
 def get_me(user_service: UserService = Provide[Container.user_service]):
@@ -138,7 +137,7 @@ def get_me(user_service: UserService = Provide[Container.user_service]):
     
     return jsonify(user_data), 200
 
-@user_bp.route('/', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@user_bp.route('/', methods=['POST'], strict_slashes=False)
 @token_required
 @role_required(['Admin'])
 @inject
@@ -184,7 +183,7 @@ def create_user(user_service: UserService = Provide[Container.user_service],
     
     return jsonify(schema.dump(user)), 201
 
-@user_bp.route('/<int:id>', methods=['PUT', 'OPTIONS'], strict_slashes=False)
+@user_bp.route('/<int:id>', methods=['PUT'], strict_slashes=False)
 @token_required
 @role_required(['Admin'])
 @inject
@@ -244,7 +243,7 @@ def update_user(id: int,
     return jsonify(schema.dump(user)), 200
 
 
-@user_bp.route('/<int:user_id>/roles', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@user_bp.route('/<int:user_id>/roles', methods=['POST'], strict_slashes=False)
 @inject
 def assign_roles_to_user(user_id: int, user_service: UserService = Provide[Container.user_service]):
     """
@@ -277,15 +276,6 @@ def assign_roles_to_user(user_id: int, user_service: UserService = Provide[Conta
         404:
           description: User not found
     """
-    # Handle OPTIONS request for CORS preflight
-    if request.method == 'OPTIONS':
-        response = jsonify({'message': 'OK'})
-        response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
-        response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-        response.headers['Access-Control-Max-Age'] = '3600'
-        return response, 200
-    
     from infrastructure.models.user_role_model import UserRole
     from infrastructure.databases.mssql import session as db_session
     

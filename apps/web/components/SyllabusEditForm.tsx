@@ -25,11 +25,97 @@ import {
     Loader2,
     BookOpen,
     LineChart,
-    Trash2
+    Trash2,
+    Check,
+    ChevronsUpDown,
+    Search
 } from "lucide-react";
 import { SyllabusData } from "./Types";
 import MaterialsTab from "./syllabus-form/MaterialsTab";
 import axios from "@/lib/axios";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+
+function SearchableSelect({ 
+  options, 
+  value, 
+  onChange, 
+  placeholder, 
+  searchPlaceholder = "Tìm kiếm...",
+  disabled = false,
+  className = ""
+}: {
+  options: { value: string | number, label: string }[],
+  value: string | number,
+  onChange: (val: string | number) => void,
+  placeholder: string,
+  searchPlaceholder?: string,
+  disabled?: boolean,
+  className?: string
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [search, setSearch] = React.useState("");
+
+  const selectedOption = options.find(opt => opt.value === value);
+
+  const filteredOptions = options.filter(opt => 
+    opt.label.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild disabled={disabled}>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className={cn("w-full justify-between font-normal bg-white", className)}
+        >
+          <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="p-0 w-[--radix-popover-trigger-width]" align="start">
+        <div className="flex items-center border-b px-3">
+          <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+          <input
+            className="flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            placeholder={searchPlaceholder}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="max-h-[300px] overflow-y-auto p-1">
+          {filteredOptions.length === 0 && (
+            <div className="py-6 text-center text-sm">Không tìm thấy kết quả.</div>
+          )}
+          {filteredOptions.map((option) => (
+            <div
+              key={option.value}
+              className={cn(
+                "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 px-2 text-sm outline-none hover:bg-slate-100 hover:text-slate-900 transition-colors",
+                value === option.value && "bg-slate-100 text-slate-900"
+              )}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+                setSearch(""); // Reset search on select
+              }}
+            >
+              <Check
+                className={cn(
+                  "mr-2 h-4 w-4",
+                  value === option.value ? "opacity-100" : "opacity-0"
+                )}
+              />
+              {option.label}
+            </div>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function SyllabusEditForm({ initial }: { initial: SyllabusData }) {
   const router = useRouter();
@@ -39,6 +125,7 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
   const [submitting, setSubmitting] = useState(false);
   const [userRole, setUserRole] = useState<string>("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
   
   // Dropdown data
   const [subjects, setSubjects] = useState<any[]>([]);
@@ -46,44 +133,66 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
   const [academicYears, setAcademicYears] = useState<any[]>([]);
   const [lecturers, setLecturers] = useState<any[]>([]);
   const [loadingDropdowns, setLoadingDropdowns] = useState(true);
+  const [plos, setPlos] = useState<any[]>([]);
 
   useEffect(() => {
+    setMounted(true);
     const role = localStorage.getItem("role") || "";
     setUserRole(role);
     
     // Load dropdown data
     const loadDropdowns = async () => {
       try {
-        const [subjectsRes, programsRes, yearsRes] = await Promise.all([
+        console.log("[DEBUG] Fetching dropdown data...");
+        const [subjectsRes, programsRes, yearsRes, usersRes] = await Promise.all([
           axios.get('/subjects'),
           axios.get('/programs'),
-          axios.get('/academic-years')
+          axios.get('/academic-years'),
+          axios.get('/users')
         ]);
         
-        setSubjects(subjectsRes.data || []);
-        setPrograms(programsRes.data || []);
-        setAcademicYears(yearsRes.data || []);
+        console.log("[DEBUG] Fetched users:", usersRes.data);
+        
+        setSubjects(Array.isArray(subjectsRes.data) ? subjectsRes.data : []);
+        setPrograms(Array.isArray(programsRes.data) ? programsRes.data : []);
+        setAcademicYears(Array.isArray(yearsRes.data) ? yearsRes.data : []);
+        
+        // Populate lecturers/users list for selection
+        let allUsers: any[] = [];
+        if (usersRes.data && Array.isArray(usersRes.data)) {
+          allUsers = usersRes.data;
+        } else if (usersRes.data && usersRes.data.data && Array.isArray(usersRes.data.data)) {
+          // Alternative format check
+          allUsers = usersRes.data.data;
+        }
         
         // Get current user info from token
         const userId = localStorage.getItem("user_id");
         const userName = localStorage.getItem("full_name") || localStorage.getItem("username");
         
+        // Ensure the current user is in the list even if server list is empty/fails
         if (userId) {
-          setLecturers([{ 
-            id: Number(userId), 
-            fullName: userName,
-            full_name: userName,
-            username: userName
-          }]);
-          
-          // Auto-select current user as lecturer for new syllabus
-          if (!data.id && !data.lecturerId) {
-            updateField("lecturerId", Number(userId));
-            updateField("lecturer", userName || "");
+          const currentId = Number(userId);
+          const exists = allUsers.some(u => u.id === currentId);
+          if (!exists) {
+            allUsers.push({ 
+              id: currentId, 
+              fullName: userName,
+              full_name: userName,
+              username: userName
+            });
           }
         }
+        
+        setLecturers(allUsers);
+
+        // Auto-select current user as lecturer for new syllabus
+        if (userId && !data.id && !data.lecturerId) {
+            updateField("lecturerId", Number(userId));
+            updateField("lecturer", userName || "");
+        }
       } catch (error) {
-        console.error("Error loading dropdown data:", error);
+        console.error("[ERROR] loadDropdowns failed:", error);
         alert("Không thể tải dữ liệu dropdown. Vui lòng refresh trang.");
       } finally {
         setLoadingDropdowns(false);
@@ -93,13 +202,33 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
     loadDropdowns();
   }, []);
 
+  // Fetch PLOs when program changes
+  useEffect(() => {
+    if (data.program_id) {
+      const fetchPLOs = async () => {
+        try {
+          console.log(`[DEBUG] Fetching PLOs for program: ${data.program_id}`);
+          // Bỏ /api/ ở phía trước vì baseURL đã có rồi
+          // SỬA: Route đúng của PLO là /program-outcomes/program/{id}
+          const res = await axios.get(`/program-outcomes/program/${data.program_id}`);
+          setPlos(Array.isArray(res.data) ? res.data : []);
+        } catch (err) {
+          console.error("Lỗi khi tải PLO:", err);
+          setPlos([]);
+        }
+      };
+      fetchPLOs();
+    } else {
+      setPlos([]);
+    }
+  }, [data.program_id]);
+
   const hasUnsavedChanges = useMemo(() => {
     return JSON.stringify(data) !== lastSavedString;
   }, [data, lastSavedString]);
 
   const isEditable = !data.id || 
-                     (data.status || "Draft").toLowerCase() === "draft" || 
-                     data.status?.toLowerCase() === "returned";
+                     (data.status?.toUpperCase() === "DRAFT" || data.status?.toUpperCase() === "RETURNED");
 
 
   const updateField = (field: keyof SyllabusData, value: any) => {
@@ -204,10 +333,10 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
 
       if (!isEdit) {
         // Validate required IDs before creating
-        if (!data.subjectId || !data.programId || !data.academicYearId || !data.lecturerId) {
+        if (!data.subjectId || !data.program_id || !data.academicYearId || !data.lecturerId) {
           alert("⚠️ Vui lòng điền đầy đủ các ID bắt buộc:\n\n" +
             `- Subject ID: ${data.subjectId || 'THIẾU'}\n` +
-            `- Program ID: ${data.programId || 'THIẾU'}\n` +
+            `- Program ID: ${data.program_id || 'THIẾU'}\n` +
             `- Academic Year ID: ${data.academicYearId || 'THIẾU'}\n` +
             `- Lecturer ID: ${data.lecturerId || 'THIẾU'}\n\n` +
             "Các ID này phải được nhập thủ công hoặc chọn từ dropdown.");
@@ -217,7 +346,7 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
         
         console.log("[DEBUG] Starting create syllabus with IDs:", {
           subjectId: data.subjectId,
-          programId: data.programId,
+          program_id: data.program_id,
           academicYearId: data.academicYearId,
           lecturerId: data.lecturerId
         });
@@ -225,7 +354,7 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
         // Create parent syllabus first (axios will convert camelCase -> snake_case on POST)
         const parentPayload: any = {
           subjectId: data.subjectId,
-          programId: data.programId,
+          program_id: data.program_id,
           academicYearId: data.academicYearId,
           lecturerId: data.lecturerId,
           headDepartmentId: data.headDepartmentId,
@@ -315,7 +444,7 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
       // Syncing payload with create logic to preserve children
       const updatePayload: any = {
         subjectId: data.subjectId,
-        programId: data.programId,
+        program_id: data.program_id,
         academicYearId: data.academicYearId,
         lecturerId: data.lecturerId,
         headDepartmentId: data.headDepartmentId,
@@ -483,22 +612,54 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
   const totalPeriods = (data.timeAllocation?.theory || 0) + (data.timeAllocation?.exercises || 0) + (data.timeAllocation?.practice || 0);
 
   const renderStatusBadge = () => {
-    const status = (data.status || "Draft").toLowerCase();
-    let colorClass = "bg-gray-500";
+    const status = (data.status || "DRAFT").toUpperCase();
+    let colorClass = "bg-slate-500";
     let label = "Bản nháp";
 
-    if (status === "pending") { colorClass = "bg-yellow-500"; label = "Chờ duyệt (BM)"; }
-    else if (status === "pending approval") { colorClass = "bg-orange-500"; label = "Chờ duyệt (PĐT)"; }
-    else if (status === "pending final approval") { colorClass = "bg-purple-500"; label = "Chờ duyệt (BGH)"; }
-    else if (status === "approved" || status === "published") { colorClass = "bg-green-600"; label = "Đã công bố"; }
-    else if (status === "returned") { colorClass = "bg-red-500"; label = "Yêu cầu sửa"; }
+    switch (status) {
+      case "PENDING_REVIEW":
+        colorClass = "bg-yellow-500";
+        label = "Đang chờ BM duyệt";
+        break;
+      case "PENDING_APPROVAL":
+        colorClass = "bg-blue-500";
+        label = "Đang chờ PĐT duyệt";
+        break;
+      case "APPROVED":
+        colorClass = "bg-teal-600";
+        label = "Đã phê duyệt (Chờ XB)";
+        break;
+      case "PUBLISHED":
+        colorClass = "bg-green-600";
+        label = "Đã xuất bản";
+        break;
+      case "RETURNED":
+      case "REJECTED":
+        colorClass = "bg-red-500";
+        label = "Yêu cầu chỉnh sửa";
+        break;
+      case "DRAFT":
+      default:
+        colorClass = "bg-slate-500";
+        label = "Bản nháp";
+        break;
+    }
 
     return <Badge className={`${colorClass} hover:${colorClass} ml-3 text-sm px-3 py-1`}>{label}</Badge>;
   };
 
+  if (!mounted) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <span className="ml-2 text-slate-500 font-medium">Đang chuẩn bị biểu mẫu...</span>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full max-w-6xl mx-auto py-6 px-4">
-      {data.status?.toLowerCase() === "returned" && data.feedback && (
+      {(data.status?.toUpperCase() === "RETURNED" || data.status?.toUpperCase() === "REJECTED") && data.feedback && (
           <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex gap-3 items-start shadow-sm animate-in slide-in-from-top-2">
              <MessageSquareWarning className="w-6 h-6 text-red-600 mt-0.5 shrink-0" />
              <div>
@@ -507,7 +668,7 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
              </div>
           </div>
       )}
-
+       {/* DoI bUN jQK #dm #fucklife #ttt #ttql #huhuhuuhu #cuocdoithatbun #nttoiqua */}
       <Card className="shadow-lg border-t-4 border-t-primary">
         <CardHeader className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 mb-4 bg-slate-50/50 rounded-t-lg gap-4">
           <div>
@@ -542,7 +703,7 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
 
             {data.id && (
               <>
-                {(data.status?.toLowerCase() === "draft" || data.status?.toLowerCase() === "returned") && (
+                {(data.status?.toUpperCase() === "DRAFT" || data.status?.toUpperCase() === "RETURNED") && (
                   <div className="flex flex-col items-end">
                       {/* SỬA: bg-blue-600 -> bg-teal-600 */}
                       <Button 
@@ -557,7 +718,10 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
                   </div>
                 )}
 
-                {(data.status?.toLowerCase() === "pending" || data.status?.toLowerCase() === "pending approval" || data.status?.toLowerCase() === "pending final approval") && (userRole === "Head of Dept" || userRole === "HoD" || userRole === "Academic Affairs" || userRole === "AA" || userRole === "Principal" || userRole === "Admin") && (
+                {(data.status?.toUpperCase() === "PENDING_REVIEW" || 
+                  data.status?.toUpperCase() === "PENDING_APPROVAL" || 
+                  data.status?.toUpperCase() === "APPROVED") && 
+                  (userRole === "Head of Dept" || userRole === "HoD" || userRole === "Academic Affairs" || userRole === "AA" || userRole === "Principal" || userRole === "Admin") && (
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" onClick={() => router.push("/reviews")}>
                          Xử lý yêu cầu này (Duyệt/Trả về)
@@ -565,7 +729,7 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
                   </div>
                 )}
 
-                {data.status?.toLowerCase() === "approved" && (
+                {(data.status?.toUpperCase() === "APPROVED" || data.status?.toUpperCase() === "PUBLISHED") && (
                     <Button className="bg-purple-600 hover:bg-purple-700 text-white border-purple-800" size="sm" onClick={() => handleWorkflow("revise")}>
                         <FileDiff className="w-4 h-4 mr-2" /> Tạo phiên bản mới
                     </Button>
@@ -602,12 +766,14 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
                     {loadingDropdowns ? (
                       <div className="text-sm text-gray-500">Đang tải...</div>
                     ) : (
-                      <select 
-                        className={`flex h-10 w-full rounded-md border px-3 py-2 text-sm ${data.id && userRole !== "Admin" ? 'bg-gray-100 border-gray-300' : 'bg-white border-blue-300'}`}
+                      <SearchableSelect 
+                        options={subjects.map(s => ({ value: s.id, label: `${s.code} - ${s.nameVi || s.name_vi}` }))}
                         value={data.subjectId || ""}
-                        disabled={!!data.id && userRole !== "Admin"} // Only Admin can change subject of existing syllabus
-                        onChange={(e) => {
-                          const subjectId = Number(e.target.value);
+                        placeholder="-- Chọn môn học --"
+                        disabled={!!data.id && userRole !== "Admin"}
+                        className={data.id && userRole !== "Admin" ? "bg-gray-100 border-gray-300" : "border-blue-300"}
+                        onChange={(val) => {
+                          const subjectId = Number(val);
                           const subject = subjects.find(s => s.id === subjectId);
                           if (subject) {
                             updateField("subjectId", subjectId);
@@ -617,14 +783,7 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
                             updateField("credits", subject.credits);
                           }
                         }}
-                      >
-                        <option value="">-- Chọn môn học --</option>
-                        {subjects.map(s => (
-                          <option key={s.id} value={s.id}>
-                            {s.code} - {s.nameVi || s.name_vi}
-                          </option>
-                        ))}
-                      </select>
+                      />
                     )}
                   </div>
                   
@@ -635,18 +794,12 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
                     {loadingDropdowns ? (
                       <div className="text-sm text-gray-500">Đang tải...</div>
                     ) : (
-                      <select 
-                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                      <SearchableSelect 
+                        options={academicYears.map(y => ({ value: y.id, label: y.code }))}
                         value={data.academicYearId || ""}
-                        onChange={(e) => updateField("academicYearId", Number(e.target.value))}
-                      >
-                        <option value="">-- Chọn năm học --</option>
-                        {academicYears.map(y => (
-                          <option key={y.id} value={y.id}>
-                            {y.code}
-                          </option>
-                        ))}
-                      </select>
+                        placeholder="-- Chọn năm học --"
+                        onChange={(val) => updateField("academicYearId", Number(val))}
+                      />
                     )}
                   </div>
 
@@ -657,18 +810,17 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
                     {loadingDropdowns ? (
                       <div className="text-sm text-gray-500">Đang tải...</div>
                     ) : (
-                      <select 
-                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                      <SearchableSelect 
+                        options={lecturers.map(l => ({ value: l.id, label: l.fullName || l.full_name || l.username }))}
                         value={data.headDepartmentId || ""}
-                        onChange={(e) => updateField("headDepartmentId", Number(e.target.value))}
-                      >
-                        <option value="">-- Chọn Trưởng Bộ môn --</option>
-                        {lecturers.map(l => (
-                          <option key={l.id} value={l.id}>
-                            {l.fullName || l.full_name || l.username}
-                          </option>
-                        ))}
-                      </select>
+                        placeholder="-- Chọn Trưởng Bộ môn --"
+                        onChange={(val) => {
+                          const id = Number(val);
+                          const user = lecturers.find(l => l.id === id);
+                          updateField("headDepartmentId", id);
+                          updateField("headDepartment", user ? (user.fullName || user.full_name || user.username) : "");
+                        }}
+                      />
                     )}
                   </div>
 
@@ -679,18 +831,17 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
                     {loadingDropdowns ? (
                       <div className="text-sm text-gray-500">Đang tải...</div>
                     ) : (
-                      <select 
-                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                      <SearchableSelect 
+                        options={lecturers.map(l => ({ value: l.id, label: l.fullName || l.full_name || l.username }))}
                         value={data.deanId || ""}
-                        onChange={(e) => updateField("deanId", Number(e.target.value))}
-                      >
-                        <option value="">-- Chọn người ký --</option>
-                        {lecturers.map(l => (
-                          <option key={l.id} value={l.id}>
-                            {l.fullName || l.full_name || l.username}
-                          </option>
-                        ))}
-                      </select>
+                        placeholder="-- Chọn người ký --"
+                        onChange={(val) => {
+                          const id = Number(val);
+                          const user = lecturers.find(l => l.id === id);
+                          updateField("deanId", id);
+                          updateField("dean", user ? (user.fullName || user.full_name || user.username) : "");
+                        }}
+                      />
                     )}
                   </div>
                   
@@ -701,25 +852,38 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
                     {loadingDropdowns ? (
                       <div className="text-sm text-gray-500">Đang tải...</div>
                     ) : (
-                      <select 
-                        className={`flex h-10 w-full rounded-md border px-3 py-2 text-sm ${data.id && userRole !== "Admin" ? 'bg-gray-100 border-gray-300' : 'bg-white border-slate-300'}`}
-                        value={data.programId || ""}
+                      <SearchableSelect 
+                        options={programs.map(p => ({ value: p.id, label: p.name || p.nameVi || p.name_vi }))}
+                        value={data.program_id || ""}
                         disabled={!!data.id && userRole !== "Admin"}
-                        onChange={(e) => updateField("programId", Number(e.target.value))}
-                      >
-                        <option value="">-- Chọn chương trình --</option>
-                        {programs.map(p => (
-                          <option key={p.id} value={p.id}>
-                            {p.name || p.nameVi || p.name_vi}
-                          </option>
-                        ))}
-                      </select>
+                        className={data.id && userRole !== "Admin" ? "bg-gray-100 border-gray-300" : "border-slate-300"}
+                        placeholder="-- Chọn chương trình --"
+                        onChange={(val) => updateField("program_id", Number(val))}
+                      />
                     )}
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-900">Người biên soạn</label>
-                    <Input className="bg-gray-100" value={data.lecturer || ""} disabled />
+                    <label className="text-sm font-semibold text-slate-900">
+                      Người biên soạn (Lecturer) <span className="text-red-600">*</span>
+                    </label>
+                    {loadingDropdowns ? (
+                      <div className="text-sm text-gray-500">Đang tải...</div>
+                    ) : (
+                      <SearchableSelect 
+                        options={lecturers.map(l => ({ value: l.id, label: l.fullName || l.full_name || l.username }))}
+                        value={data.lecturerId || ""}
+                        disabled={!!data.id && userRole !== "Admin"}
+                        className={data.id && userRole !== "Admin" ? "bg-gray-100 border-gray-300" : "border-slate-300"}
+                        placeholder="-- Chọn giảng viên --"
+                        onChange={(val) => {
+                          const id = Number(val);
+                          const user = lecturers.find(l => l.id === id);
+                          updateField("lecturerId", id);
+                          updateField("lecturer", user ? (user.fullName || user.full_name || user.username) : "");
+                        }}
+                      />
+                    )}
                   </div>
                 </div>
                 {!data.id && (
@@ -762,9 +926,42 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <label className="text-sm font-semibold">HP Tiên quyết <Input className="mt-1" value={data.prerequisites || ""} onChange={(e) => updateField("prerequisites", e.target.value)} /></label>
-                <label className="text-sm font-semibold">HP Học trước <Input className="mt-1" value={data.preCourses || ""} onChange={(e) => updateField("preCourses", e.target.value)} /></label>
-                <label className="text-sm font-semibold">HP Song hành <Input className="mt-1" value={data.coCourses || ""} onChange={(e) => updateField("coCourses", e.target.value)} /></label>
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold uppercase text-slate-500 text-[11px]">HP Tiên quyết</label>
+                  <SearchableSelect 
+                    options={[
+                      { value: "", label: "-- Không có --" },
+                      ...subjects.map(s => ({ value: s.code, label: `${s.code} - ${s.nameVi || s.name_vi}` }))
+                    ]}
+                    value={data.prerequisites || ""}
+                    placeholder="Chọn môn học..."
+                    onChange={(val) => updateField("prerequisites", String(val))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold uppercase text-slate-500 text-[11px]">HP Học trước</label>
+                  <SearchableSelect 
+                    options={[
+                      { value: "", label: "-- Không có --" },
+                      ...subjects.map(s => ({ value: s.code, label: `${s.code} - ${s.nameVi || s.name_vi}` }))
+                    ]}
+                    value={data.preCourses || ""}
+                    placeholder="Chọn môn học..."
+                    onChange={(val) => updateField("preCourses", String(val))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold uppercase text-slate-500 text-[11px]">HP Song hành</label>
+                  <SearchableSelect 
+                    options={[
+                      { value: "", label: "-- Không có --" },
+                      ...subjects.map(s => ({ value: s.code, label: `${s.code} - ${s.nameVi || s.name_vi}` }))
+                    ]}
+                    value={data.coCourses || ""}
+                    placeholder="Chọn môn học..."
+                    onChange={(val) => updateField("coCourses", String(val))}
+                  />
+                </div>
               </div>
                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <label className="text-sm font-semibold">Loại học phần <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background mt-1" value={data.courseType || ""} onChange={(e) => updateField("courseType", e.target.value)}><option value="Bắt buộc">Bắt buộc</option><option value="Tự chọn bắt buộc">Tự chọn bắt buộc</option><option value="Tự chọn tự do">Tự chọn tự do</option></select></label>
@@ -799,9 +996,94 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
             </TabsContent>
 
             <TabsContent value="plo" className="animate-in fade-in-50">
-               {/* SỬA: Alert bg-blue-50 -> bg-teal-50 */}
-               <div className="alert bg-teal-50 text-teal-700 p-3 mb-4 text-sm rounded-md border border-teal-100"><strong>Hướng dẫn:</strong> Điền các ký tự (I, R, M, A) vào các ô tương ứng.</div>
-               <div className="border rounded-md overflow-x-auto"><Table><TableHeader><TableRow><TableHead className="w-24 bg-gray-100">CLO \ PLO</TableHead>{[1, 2, 3, 4, 5, 6, 7].map((p) => (<TableHead key={p} className="text-center w-16 bg-gray-50">PLO{p}</TableHead>))}</TableRow></TableHeader><TableBody>{data.clos.map((clo, i) => { const rowMap = data.ploMapping.find((p) => p.cloCode === clo.code) || { cloCode: clo.code, plos: {} }; return (<TableRow key={i}><TableCell className="font-bold bg-gray-50">{clo.code}</TableCell>{[1, 2, 3, 4, 5, 6, 7].map((p) => (<TableCell key={p} className="p-1"><Input className="h-9 text-center uppercase" value={rowMap.plos[`PLO${p}`] || ""} onChange={(e) => { const val = e.target.value; const newMapping = [...data.ploMapping]; const existIdx = newMapping.findIndex((m) => m.cloCode === clo.code); if (existIdx >= 0) { newMapping[existIdx] = { ...newMapping[existIdx], plos: { ...newMapping[existIdx].plos, [`PLO${p}`]: val } } } else { newMapping.push({ cloCode: clo.code, plos: { [`PLO${p}`]: val } }); } updateField("ploMapping", newMapping); }} /></TableCell>))}</TableRow>); })}</TableBody></Table></div>
+               <div className="alert bg-teal-50 text-teal-700 p-3 mb-4 text-sm rounded-md border border-teal-100 flex items-start gap-3">
+                  <span className="text-lg">💡</span>
+                  <div>
+                    <strong className="block mb-1">Hướng dẫn PLO Mapping:</strong>
+                    <p className="opacity-90 leading-relaxed">
+                      Điền các mức độ đóng góp của CLO vào PLO: <strong>I</strong> (Introduced), 
+                      <strong>R</strong> (Reinforced), <strong>M</strong> (Mastered), <strong>A</strong> (Assessed).
+                    </p>
+                  </div>
+               </div>
+               
+               {!data.program_id || data.clos.length === 0 ? (
+                 <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl p-12 text-center">
+                    <div className="text-4xl mb-4">📋</div>
+                    <h3 className="text-lg font-bold text-slate-700 mb-2">Bảng PLO Mapping chưa sẵn sàng</h3>
+                    <p className="text-slate-500 max-w-md mx-auto">
+                      Vui lòng chọn <strong>Chương trình đào tạo</strong> (Tab 1) và 
+                      thêm ít nhất một <strong>CLO</strong> (Tab 2) để bắt đầu ánh xạ.
+                    </p>
+                 </div>
+               ) : (
+                 <div className="border rounded-xl overflow-hidden shadow-sm bg-white">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-slate-50">
+                          <TableHead className="w-32 bg-slate-100 font-bold border-r">CLO \ PLO</TableHead>
+                          {plos.length > 0 ? (
+                            plos.map((plo) => (
+                              <TableHead key={plo.id} className="text-center min-w-[80px] font-bold text-teal-700 bg-teal-50/30">
+                                {plo.code}
+                                <div className="text-[9px] font-normal text-slate-400 uppercase truncate px-1" title={plo.nameVi}>
+                                  {plo.nameVi || plo.name_vi}
+                                </div>
+                              </TableHead>
+                            ))
+                          ) : (
+                            <TableHead className="text-center text-slate-400 italic font-normal">
+                              Đang tải danh sách PLO...
+                            </TableHead>
+                          )}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {data.clos.map((clo, i) => {
+                          const rowMap = data.ploMapping?.find((p) => p.cloCode === clo.code) || { cloCode: clo.code, plos: {} };
+                          
+                          return (
+                            <TableRow key={i} className="hover:bg-slate-50/50">
+                              <TableCell className="font-bold bg-slate-50/50 border-r">{clo.code}</TableCell>
+                              {plos.map((plo) => (
+                                <TableCell key={plo.id} className="p-1 text-center">
+                                  <input 
+                                    className="w-full h-10 text-center uppercase border-none focus:ring-2 focus:ring-teal-500 rounded-md transition-all font-medium bg-transparent"
+                                    placeholder="-"
+                                    value={rowMap.plos[plo.code] || ""} 
+                                    onChange={(e) => {
+                                      const val = e.target.value.toUpperCase();
+                                      // Only allows I, R, M, A or empty
+                                      if (val !== "" && !["I", "R", "M", "A"].includes(val)) return;
+                                      
+                                      const newMapping = [...(data.ploMapping || [])];
+                                      const existIdx = newMapping.findIndex((m) => m.cloCode === clo.code);
+                                      
+                                      if (existIdx >= 0) {
+                                        newMapping[existIdx] = { 
+                                          ...newMapping[existIdx], 
+                                          plos: { ...newMapping[existIdx].plos, [plo.code]: val } 
+                                        };
+                                      } else {
+                                        newMapping.push({ 
+                                          cloCode: clo.code, 
+                                          plos: { [plo.code]: val } 
+                                        });
+                                      }
+                                      updateField("ploMapping", newMapping);
+                                    }} 
+                                  />
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                 </div>
+               )}
             </TabsContent>
 
             <TabsContent value="assessment" className="space-y-6 animate-in fade-in-50">

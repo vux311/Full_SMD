@@ -1,66 +1,93 @@
 version: '3.8'
 
 services:
-  # Database - PostgreSQL (used in the project instead of MS SQL based on sh scripts)
+  # --- Database (MS SQL Server) ---
   db:
-    image: postgres:15
+    image: mcr.microsoft.com/mssql/server:2022-latest
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
-      POSTGRES_DB: ${POSTGRES_DB:-smd_db}
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD:-SMD_password_123!}
+      - MSSQL_PID=Developer
     ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - "1433:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${MSSQL_SA_PASSWORD:-SMD_password_123!} -C -Q 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
 
-  # Redis for Caching and Celery
+  # --- Cache & Message Broker (Redis) ---
   redis:
     image: redis:alpine
     ports:
       - "6379:6379"
 
-  # Backend API
+  # --- Search Engine (Elasticsearch) ---
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- Backend API (Flask) ---
   api:
-    build:
+    build: 
       context: ./apps/api
       dockerfile: Dockerfile
     environment:
-      DATABASE_URI: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-smd_db}
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      - DATABASE_URI=${DATABASE_URI:-mssql+pymssql://sa:SMD_password_123!@db:1433/master}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - SECRET_KEY=${SECRET_KEY:-your_secret_key_here}
     ports:
       - "5000:5000"
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      elasticsearch:
+        condition: service_healthy
 
-  # Celery Worker
+  # --- Async Task Worker (Celery) ---
   worker:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
-    command: celery -A make_celery.celery_app worker --loglevel=info
+    command: celery -A make_celery worker --loglevel=info -P eventlet
     environment:
-      DATABASE_URI: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-smd_db}
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      - DATABASE_URI=${DATABASE_URI:-mssql+pymssql://sa:SMD_password_123!@db:1433/master}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-http://elasticsearch:9200}
     depends_on:
-      - db
+      - api
       - redis
 
-  # Frontend Web
+  # --- Frontend (Next.js) ---
   web:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:5000
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:5000}
     ports:
       - "3000:3000"
+    environment:
+      - API_URL=http://api:5000
     depends_on:
       - api
 
 volumes:
-  postgres_data:
+  mssql_data:
+  es_data:

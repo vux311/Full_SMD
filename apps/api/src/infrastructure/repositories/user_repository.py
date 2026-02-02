@@ -29,6 +29,12 @@ class UserRepository:
     def get_by_id(self, user_id: int) -> Optional[User]:
         return self.session.query(User).filter_by(id=user_id).first()
 
+    def get_by_email(self, email: str) -> Optional[User]:
+        """Get user by email."""
+        if not email or not isinstance(email, str):
+            return None
+        return self.session.query(User).filter_by(email=email).first()
+
     def create(self, data: dict) -> User:
         user = User(**data)
         self.session.add(user)

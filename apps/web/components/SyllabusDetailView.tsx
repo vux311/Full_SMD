@@ -74,7 +74,9 @@ export default function SyllabusDetailView({
          <div className="flex gap-2">
             {!hideManagementButtons && (
               <>
-              <Link href={`/syllabus/${syllabus.id}/edit`}><Button variant="outline"><Pencil className="mr-2 h-4 w-4" /> Chỉnh sửa</Button></Link>
+              {(syllabus.status.toUpperCase() !== "PUBLISHED" && syllabus.status.toUpperCase() !== "APPROVED") && (
+                <Link href={`/syllabus/${syllabus.id}/edit`}><Button variant="outline"><Pencil className="mr-2 h-4 w-4" /> Chỉnh sửa</Button></Link>
+              )}
               
               <Dialog>
                 <DialogTrigger asChild>
@@ -157,13 +159,17 @@ export default function SyllabusDetailView({
             </div>
 
             {/* Workflow & Deadline Banner */}
-            {syllabus.status !== 'Draft' && syllabus.status !== 'Approved' && syllabus.status !== 'Published' && (
+            {syllabus.status.toUpperCase() !== 'DRAFT' && 
+             syllabus.status.toUpperCase() !== 'APPROVED' && 
+             syllabus.status.toUpperCase() !== 'PUBLISHED' && (
               <div className="mb-6 p-4 rounded-lg border bg-slate-50 flex items-center justify-between print:hidden">
                 <div className="flex items-center gap-4">
                   <div>
                     <div className="text-xs text-muted-foreground uppercase font-semibold">Trạng thái</div>
-                    <Badge variant={syllabus.status === 'Returned' ? 'destructive' : 'secondary'}>
-                      {syllabus.status}
+                    <Badge variant={syllabus.status.toUpperCase() === 'RETURNED' || syllabus.status.toUpperCase() === 'REJECTED' ? 'destructive' : 'secondary'}>
+                      {syllabus.status.toUpperCase() === "PENDING_APPROVAL" ? "Đang chờ PĐT duyệt" : 
+                       syllabus.status.toUpperCase() === "APPROVED" ? "Đã phê duyệt (Chờ BGH XB)" : 
+                       syllabus.status.toUpperCase() === "PENDING_REVIEW" ? "Đang chờ BM duyệt" : syllabus.status}
                     </Badge>
                   </div>
                   {syllabus.dueDate && (

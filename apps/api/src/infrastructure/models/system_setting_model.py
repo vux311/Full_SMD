@@ -14,5 +14,5 @@ class SystemSetting(Base):
     
     key = Column(NVARCHAR(50), primary_key=True)
     value = Column(UnicodeText, nullable=False)
-    type = Column(NVARCHAR(20), default='STRING')
+    data_type = Column(NVARCHAR(20), default='STRING') # STRING, NUMBER, BOOLEAN, JSON
     description = Column(NVARCHAR(255), nullable=True)

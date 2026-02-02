@@ -32,8 +32,8 @@ def error_handling_middleware(error):
     except Exception:
         tb = None
 
-    payload = {'error': str(error)}
-    if getattr(current_app, 'debug', False) and tb:
+    payload = {'error': str(error), 'message': str(error)}
+    if getattr(current_app, 'debug', False):
         payload['traceback'] = tb
 
     response = jsonify(payload)
@@ -86,6 +86,12 @@ def token_required(f):
             g.user_id = payload.get('user_id')
             g.username = payload.get('username')
             g.role = payload.get('role')
+            
+            # If the function expects current_user, pass it from g
+            import inspect
+            sig = inspect.signature(f)
+            if 'current_user' in sig.parameters:
+                kwargs['current_user'] = g
         except jwt.ExpiredSignatureError:
             return jsonify({'message': 'Token expired'}), 401
         except jwt.InvalidTokenError:

@@ -67,43 +67,47 @@ export default function DashboardCharts({ data }: { data: StatsData | null }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="shadow-sm">
             <CardHeader><CardTitle className="text-lg">Tỷ lệ trạng thái đề cương</CardTitle></CardHeader>
-            <CardContent className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                        <Pie
-                            data={breakdown}
-                            cx="50%" cy="50%"
-                            innerRadius={60} outerRadius={100}
-                            paddingAngle={5}
-                            dataKey="value"
-                        >
-                            {breakdown.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={entry.fill} stroke="none"/>
-                            ))}
-                        </Pie>
-                        <Tooltip />
-                        <Legend verticalAlign="bottom" height={36}/>
-                    </PieChart>
-                </ResponsiveContainer>
+            <CardContent>
+                <div className="h-[300px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                            <Pie
+                                data={breakdown}
+                                cx="50%" cy="50%"
+                                innerRadius={60} outerRadius={100}
+                                paddingAngle={5}
+                                dataKey="value"
+                            >
+                                {breakdown.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={entry.fill} stroke="none"/>
+                                ))}
+                            </Pie>
+                            <Tooltip />
+                            <Legend verticalAlign="bottom" height={36}/>
+                        </PieChart>
+                    </ResponsiveContainer>
+                </div>
             </CardContent>
         </Card>
 
         <Card className="shadow-sm">
             <CardHeader><CardTitle className="text-lg">Thống kê số lượng</CardTitle></CardHeader>
-            <CardContent className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={breakdown} margin={{top: 20, right: 30, left: 0, bottom: 5}}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="name" tick={{fontSize: 12}} />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip cursor={{fill: 'transparent'}} />
-                        <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                            {breakdown.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={entry.fill} />
-                            ))}
-                        </Bar>
-                    </BarChart>
-                </ResponsiveContainer>
+            <CardContent>
+                <div className="h-[300px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={breakdown} margin={{top: 20, right: 30, left: 0, bottom: 5}}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis dataKey="name" tick={{fontSize: 12}} />
+                            <YAxis allowDecimals={false} />
+                            <Tooltip cursor={{fill: 'transparent'}} />
+                            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                                {breakdown.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={entry.fill} />
+                                ))}
+                            </Bar>
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
             </CardContent>
         </Card>
       </div>

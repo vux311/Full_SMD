@@ -16,7 +16,12 @@ import {
 import { Button } from "@/components/ui/button";
 import axios from "@/lib/axios";
 
-export default function SyllabusDeleteButton({ id }: { id: number }) {
+interface SyllabusDeleteButtonProps {
+  id: number;
+  onDeleteSuccess?: () => void;
+}
+
+export default function SyllabusDeleteButton({ id, onDeleteSuccess }: SyllabusDeleteButtonProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
@@ -25,7 +30,11 @@ export default function SyllabusDeleteButton({ id }: { id: number }) {
     try {
       await axios.delete(`/syllabuses/${id}`);
       alert("Xóa thành công!");
-      router.push("/");
+      if (onDeleteSuccess) {
+        onDeleteSuccess();
+      } else {
+        router.push("/");
+      }
     } catch (err: any) {
       console.error("Network error deleting syllabus:", err);
       const status = err?.response?.status || err?.status;

@@ -10,7 +10,7 @@ from config import Config
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 
-@auth_bp.route('/login', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@auth_bp.route('/login', methods=['POST'], strict_slashes=False)
 @inject
 def login(user_service: UserService = Provide[Container.user_service],
           audit_service: SystemAuditLogService = Provide[Container.system_auditlog_service]):
@@ -41,10 +41,6 @@ def login(user_service: UserService = Provide[Container.user_service],
       401:
         description: Invalid credentials
     """
-    if request.method == 'OPTIONS':
-      # Fast path for CORS preflight
-      return jsonify({'message': 'CORS preflight OK'}), 200
-
     data = request.get_json() or {}
     username = data.get('username')
     password = data.get('password')

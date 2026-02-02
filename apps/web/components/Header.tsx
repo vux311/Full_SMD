@@ -57,7 +57,7 @@ export default function Header() {
   }, [router]);
 
   const handleRead = async (notif: any) => {
-      if(!notif.is_read) {
+      if(!notif.isRead) {
           await markAsRead(notif.id);
       }
       if(notif.link) router.push(notif.link);
@@ -101,12 +101,14 @@ export default function Header() {
                                     <div 
                                         key={n.id} 
                                         onClick={() => handleRead(n)}
-                                        className={`p-3 border-b cursor-pointer hover:bg-slate-50 transition-colors ${!n.is_read ? 'bg-blue-50/60' : ''}`}
+                                        className={`p-3 border-b cursor-pointer hover:bg-slate-50 transition-colors ${!n.isRead ? 'bg-blue-50/60' : ''}`}
                                     >
                                         <div className="text-sm font-semibold text-slate-800 mb-0.5">{n.title}</div>
                                         <div className="text-xs text-slate-600 line-clamp-2">{n.message}</div>
                                         <div className="text-[10px] text-slate-400 mt-2 text-right">
-                                            {new Date(n.created_at).toLocaleString('vi-VN')}
+                                            {n.createdAt && !isNaN(Date.parse(n.createdAt)) 
+                                                ? new Date(n.createdAt).toLocaleString('vi-VN') 
+                                                : 'Vừa xong'}
                                         </div>
                                     </div>
                                 ))

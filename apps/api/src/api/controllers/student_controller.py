@@ -9,7 +9,7 @@ student_bp = Blueprint('student', __name__, url_prefix='/student')
 sub_schema = StudentSubscriptionSchema()
 rep_schema = StudentReportSchema()
 
-@student_bp.route('/subscribe', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@student_bp.route('/subscribe', methods=['POST'], strict_slashes=False)
 @token_required
 @role_required(['Student', 'Admin'])
 @inject
@@ -30,7 +30,7 @@ def subscribe(service: StudentService = Provide[Container.student_service]):
     item = service.subscribe(user_id, subject_id)
     return jsonify(sub_schema.dump(item)), 201
 
-@student_bp.route('/unsubscribe', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@student_bp.route('/unsubscribe', methods=['POST'], strict_slashes=False)
 @token_required
 @role_required(['Student', 'Admin'])
 @inject
@@ -53,7 +53,7 @@ def unsubscribe(service: StudentService = Provide[Container.student_service]):
         return jsonify({'message': 'Subscription not found'}), 404
     return '', 204
 
-@student_bp.route('/report', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@student_bp.route('/report', methods=['POST'], strict_slashes=False)
 @token_required
 @role_required(['Student', 'Admin'])
 @inject
@@ -75,7 +75,7 @@ def report(service: StudentService = Provide[Container.student_service]):
     item = service.report_syllabus(user_id, sid, content)
     return jsonify(rep_schema.dump(item)), 201
 
-@student_bp.route('/reports', methods=['GET', 'OPTIONS'], strict_slashes=False)
+@student_bp.route('/reports', methods=['GET'], strict_slashes=False)
 @token_required
 @role_required(['Admin', 'Head of Dept', 'Academic Affairs'])
 @inject
@@ -92,7 +92,7 @@ def list_reports(service: StudentService = Provide[Container.student_service]):
     items = service.list_reports()
     return jsonify(rep_schema.dump(items, many=True)), 200
 
-@student_bp.route('/report/<int:id>/resolve', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@student_bp.route('/report/<int:id>/resolve', methods=['POST'], strict_slashes=False)
 @token_required
 @role_required(['Admin', 'Head of Dept', 'Academic Affairs'])
 @inject

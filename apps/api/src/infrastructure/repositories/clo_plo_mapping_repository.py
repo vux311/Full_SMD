@@ -13,11 +13,14 @@ class CloPloMappingRepository:
     def get_by_syllabus_clo(self, syllabus_clo_id: int) -> List[CloPloMapping]:
         return self.session.query(CloPloMapping).filter_by(syllabus_clo_id=syllabus_clo_id).all()
 
-    def create(self, data: dict) -> CloPloMapping:
+    def create(self, data: dict, commit: bool = True) -> CloPloMapping:
         item = CloPloMapping(**data)
         self.session.add(item)
-        self.session.commit()
-        self.session.refresh(item)
+        if commit:
+            self.session.commit()
+            self.session.refresh(item)
+        else:
+            self.session.flush()
         return item
 
     def delete(self, id: int) -> bool:

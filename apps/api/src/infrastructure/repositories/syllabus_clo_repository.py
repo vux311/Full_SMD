@@ -16,11 +16,14 @@ class SyllabusCloRepository:
     def get_by_syllabus_id(self, syllabus_id: int) -> List[SyllabusClo]:
         return self.session.query(SyllabusClo).filter_by(syllabus_id=syllabus_id).all()
 
-    def create(self, data: dict) -> SyllabusClo:
+    def create(self, data: dict, commit: bool = True) -> SyllabusClo:
         item = SyllabusClo(**data)
         self.session.add(item)
-        self.session.commit()
-        self.session.refresh(item)
+        if commit:
+            self.session.commit()
+            self.session.refresh(item)
+        else:
+            self.session.flush()
         return item
 
     def update(self, id: int, data: dict) -> Optional[SyllabusClo]:

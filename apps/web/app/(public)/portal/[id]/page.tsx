@@ -10,7 +10,9 @@ export default async function StudentViewPage(props: { params: Promise<{ id: str
 
   try {
     // Gọi API lấy chi tiết đề cương (SỬA: sử dụng endpoint public để lọc trạng thái Approved/Published)
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/public/syllabus/${id}`, { cache: "no-store" });
+    // Sử dụng API_URL (nội bộ docker) nếu có, fallback về NEXT_PUBLIC_API_URL
+    const apiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+    const res = await fetch(`${apiUrl}/public/syllabus/${id}`, { cache: "no-store" });
 
     if (!res.ok) {
         return (

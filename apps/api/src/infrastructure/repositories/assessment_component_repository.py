@@ -10,11 +10,14 @@ class AssessmentComponentRepository:
     def get_by_id(self, id: int) -> Optional[AssessmentComponent]:
         return self.session.query(AssessmentComponent).filter_by(id=id).first()
 
-    def create(self, data: dict) -> AssessmentComponent:
+    def create(self, data: dict, commit: bool = True) -> AssessmentComponent:
         item = AssessmentComponent(**data)
         self.session.add(item)
-        self.session.commit()
-        self.session.refresh(item)
+        if commit:
+            self.session.commit()
+            self.session.refresh(item)
+        else:
+            self.session.flush()
         return item
 
     def update(self, id: int, data: dict) -> Optional[AssessmentComponent]:

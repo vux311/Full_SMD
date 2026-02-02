@@ -23,7 +23,7 @@ class Syllabus(Base):
     program_id = Column(BigInteger, ForeignKey('programs.id'), nullable=False)
     academic_year_id = Column(BigInteger, ForeignKey('academic_years.id'), nullable=False)
     lecturer_id = Column(BigInteger, ForeignKey('users.id'), nullable=False)
-    status = Column(NVARCHAR(20))  # DRAFT, PENDING, APPROVED
+    status = Column(String(50), nullable=True, default='DRAFT')
     version = Column(NVARCHAR(10))
     time_allocation = Column(UnicodeText)  # JSON
     prerequisites = Column(UnicodeText)
@@ -64,8 +64,8 @@ class Syllabus(Base):
     materials = relationship("SyllabusMaterial", back_populates="syllabus", cascade="all, delete-orphan")
     teaching_plans = relationship("TeachingPlan", back_populates="syllabus", cascade="all, delete-orphan")
     assessment_schemes = relationship("AssessmentScheme", back_populates="syllabus", cascade="all, delete-orphan")
-    comments = relationship("SyllabusComment", back_populates="syllabus")
-    workflow_logs = relationship("WorkflowLog", back_populates="syllabus")
+    comments = relationship("SyllabusComment", back_populates="syllabus", cascade="all, delete-orphan")
+    workflow_logs = relationship("WorkflowLog", back_populates="syllabus", cascade="all, delete-orphan")
     current_workflow = relationship("SyllabusCurrentWorkflow", back_populates="syllabus", uselist=False)
     student_reports = relationship("StudentReport", back_populates="syllabus")
     ai_audit_logs = relationship("AiAuditLog", back_populates="syllabus")

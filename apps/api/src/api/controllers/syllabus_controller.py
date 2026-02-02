@@ -36,7 +36,7 @@ def check_deadlines(syllabus_service: SyllabusService = Provide[Container.syllab
         "notifications_sent": notification_count
     })
 
-@syllabus_bp.route('/', methods=['GET', 'OPTIONS'], strict_slashes=False)
+@syllabus_bp.route('/', methods=['GET'], strict_slashes=False)
 @inject
 @log_api_request
 def list_syllabuses(syllabus_service: SyllabusService = Provide[Container.syllabus_service]):
@@ -110,7 +110,7 @@ def list_syllabuses(syllabus_service: SyllabusService = Provide[Container.syllab
             'total': len(transformed_items)
         }), 200
 
-@syllabus_bp.route('/<int:id>', methods=['GET', 'OPTIONS'], strict_slashes=False)
+@syllabus_bp.route('/<int:id>', methods=['GET'], strict_slashes=False)
 @inject
 def get_syllabus(id: int, syllabus_service: SyllabusService = Provide[Container.syllabus_service]):
     """Get syllabus
@@ -137,7 +137,7 @@ def get_syllabus(id: int, syllabus_service: SyllabusService = Provide[Container.
     return jsonify(schema.dump(s)), 200
 
 
-@syllabus_bp.route('/<int:id>/details', methods=['GET', 'OPTIONS'], strict_slashes=False)
+@syllabus_bp.route('/<int:id>/details', methods=['GET'], strict_slashes=False)
 @inject
 def get_syllabus_details(id: int, syllabus_service: SyllabusService = Provide[Container.syllabus_service]):
     """Get full syllabus details
@@ -215,7 +215,7 @@ def compare_syllabuses(syllabus_service: SyllabusService = Provide[Container.syl
     }), 200
 
 
-@syllabus_bp.route('/<int:id>/submit', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@syllabus_bp.route('/<int:id>/submit', methods=['POST'], strict_slashes=False)
 @token_required
 @role_required(['Lecturer', 'Admin'])
 @inject
@@ -246,12 +246,13 @@ def submit_syllabus(id: int, syllabus_service: SyllabusService = Provide[Contain
     """
     from flask import g
     user_id = getattr(g, 'user_id', None)
+    user_role = getattr(g, 'role', None)
     
     if not user_id:
         return jsonify({'message': 'User not authenticated'}), 401
     
     try:
-        s = syllabus_service.submit_syllabus(id, user_id)
+        s = syllabus_service.submit_syllabus(id, user_id, user_role)
     except ValueError as e:
         return jsonify({'message': str(e)}), 422
     except Exception as e:
@@ -263,7 +264,7 @@ def submit_syllabus(id: int, syllabus_service: SyllabusService = Provide[Contain
     return jsonify({'message': 'Syllabus submitted successfully', 'data': schema.dump(s)}), 200
 
 
-@syllabus_bp.route('/<int:id>/evaluate', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@syllabus_bp.route('/<int:id>/evaluate', methods=['POST'], strict_slashes=False)
 @token_required
 @role_required(['Head of Dept', 'Academic Affairs', 'Principal', 'Admin'])
 @inject
@@ -344,7 +345,7 @@ def get_workflow_logs(id: int, syllabus_service: SyllabusService = Provide[Conta
     schema_w = WorkflowLogSchema()
     return jsonify(schema_w.dump(logs, many=True)), 200
 
-@syllabus_bp.route('/', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@syllabus_bp.route('/', methods=['POST'], strict_slashes=False)
 @token_required
 @role_required(['Lecturer', 'Admin'])
 @inject
@@ -379,12 +380,16 @@ def create_syllabus(syllabus_service: SyllabusService = Provide[Container.syllab
         return jsonify({'message': f'Error creating syllabus: {str(e)}'}), 400
     return jsonify(schema.dump(s)), 201
 
-@syllabus_bp.route('/<int:id>', methods=['PUT', 'PATCH', 'OPTIONS'], strict_slashes=False)
+@syllabus_bp.route('/<int:id>', methods=['PUT', 'PATCH'], strict_slashes=False)
 @token_required
 @role_required(['Lecturer', 'Admin'])
 @inject
 def update_syllabus(id: int, syllabus_service: SyllabusService = Provide[Container.syllabus_service]):
     from marshmallow import ValidationError
+    from flask import g
+    user_id = getattr(g, 'user_id', None)
+    user_role = getattr(g, 'role', None)
+    
     raw_data = request.get_json() or {}
     try:
         # load(partial=True) handles PATCH correctly by only validating provided fields
@@ -392,12 +397,18 @@ def update_syllabus(id: int, syllabus_service: SyllabusService = Provide[Contain
     except ValidationError as err:
         return jsonify(err.messages), 400
         
-    s = syllabus_service.update_syllabus(id, data)
+    try:
+        s = syllabus_service.update_syllabus(id, data, user_id, user_role)
+    except ValueError as e:
+        return jsonify({'message': str(e)}), 422
+    except Exception as e:
+        return jsonify({'message': f'Error updating syllabus: {str(e)}'}), 500
+        
     if not s:
         return jsonify({'message': 'Syllabus not found'}), 404
     return jsonify(schema.dump(s)), 200
 
-@syllabus_bp.route('/<int:id>', methods=['DELETE', 'OPTIONS'], strict_slashes=False)
+@syllabus_bp.route('/<int:id>', methods=['DELETE'], strict_slashes=False)
 @token_required
 @role_required(['Admin'])
 @inject
@@ -407,7 +418,7 @@ def delete_syllabus(id: int, syllabus_service: SyllabusService = Provide[Contain
         return jsonify({'message': 'Syllabus not found'}), 404
     return '', 204
 
-@syllabus_bp.route('/<int:id>/history', methods=['GET', 'OPTIONS'], strict_slashes=False)
+@syllabus_bp.route('/<int:id>/history', methods=['GET'], strict_slashes=False)
 @inject
 @token_required
 def get_syllabus_history(id: int, current_user, snapshot_service: SyllabusSnapshotService = Provide[Container.syllabus_snapshot_service]):
@@ -420,7 +431,7 @@ def get_syllabus_history(id: int, current_user, snapshot_service: SyllabusSnapsh
         'created_by': s.creator.full_name if s.creator else "System"
     } for s in history])
 
-@syllabus_bp.route('/compare-versions', methods=['GET', 'OPTIONS'])
+@syllabus_bp.route('/compare-versions', methods=['GET'])
 @inject
 @token_required
 def compare_versions(current_user, snapshot_service: SyllabusSnapshotService = Provide[Container.syllabus_snapshot_service]):
@@ -443,7 +454,7 @@ def compare_versions(current_user, snapshot_service: SyllabusSnapshotService = P
     except Exception as e:
         return jsonify({'message': str(e)}), 400
 
-@syllabus_bp.route('/snapshots/<int:snapshot_id>', methods=['GET', 'OPTIONS'], strict_slashes=False)
+@syllabus_bp.route('/snapshots/<int:snapshot_id>', methods=['GET'], strict_slashes=False)
 @inject
 @token_required
 def get_snapshot_details(snapshot_id: int, current_user, snapshot_service: SyllabusSnapshotService = Provide[Container.syllabus_snapshot_service]):

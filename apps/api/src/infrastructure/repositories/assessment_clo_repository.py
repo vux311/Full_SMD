@@ -8,10 +8,13 @@ class AssessmentCloRepository:
     def __init__(self, session: Session = session):
         self.session = session
 
-    def add_mapping(self, component_id: int, syllabus_clo_id: int) -> AssessmentClo:
+    def add_mapping(self, component_id: int, syllabus_clo_id: int, commit: bool = True) -> AssessmentClo:
         mapping = AssessmentClo(assessment_component_id=component_id, syllabus_clo_id=syllabus_clo_id)
         self.session.add(mapping)
-        self.session.commit()
+        if commit:
+            self.session.commit()
+        else:
+            self.session.flush()
         return mapping
 
     def remove_mapping(self, component_id: int, syllabus_clo_id: int) -> bool:

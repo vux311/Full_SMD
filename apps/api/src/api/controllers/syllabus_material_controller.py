@@ -35,7 +35,7 @@ def list_materials(syllabus_id: int, syllabus_material_service: SyllabusMaterial
     items = syllabus_material_service.get_by_syllabus(syllabus_id)
     return jsonify(schema.dump(items, many=True)), 200
 
-@syllabus_material_bp.route('/', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@syllabus_material_bp.route('/', methods=['POST'], strict_slashes=False)
 @inject
 def create_material(syllabus_material_service: SyllabusMaterialService = Provide[Container.syllabus_material_service]):
     """

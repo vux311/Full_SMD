@@ -22,4 +22,4 @@ class SyllabusClo(Base):
     # Relationships
     syllabus = relationship("Syllabus", back_populates="clos")
     plo_mappings = relationship("CloPloMapping", back_populates="syllabus_clo", cascade="all, delete-orphan")
-    assessment_clos = relationship("AssessmentClo", back_populates="syllabus_clo")
+    assessment_clos = relationship("AssessmentClo", back_populates="syllabus_clo", cascade="all, delete-orphan")

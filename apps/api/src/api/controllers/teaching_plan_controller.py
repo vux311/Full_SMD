@@ -35,7 +35,7 @@ def list_plans(syllabus_id: int, teaching_plan_service: TeachingPlanService = Pr
     items = teaching_plan_service.list_plans_for_syllabus(syllabus_id)
     return jsonify(schema.dump(items, many=True)), 200
 
-@teaching_plan_bp.route('/', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@teaching_plan_bp.route('/', methods=['POST'], strict_slashes=False)
 @inject
 def create_plan(teaching_plan_service: TeachingPlanService = Provide[Container.teaching_plan_service]):
     """
@@ -55,8 +55,6 @@ def create_plan(teaching_plan_service: TeachingPlanService = Provide[Container.t
       400:
         description: Validation or creation error
     """
-    if request.method == 'OPTIONS':
-        return '', 200
     data = request.get_json() or {}
     errors = schema.validate(data)
     if errors:
@@ -67,7 +65,7 @@ def create_plan(teaching_plan_service: TeachingPlanService = Provide[Container.t
         return jsonify({'error': str(e)}), 400
     return jsonify(schema.dump(item)), 201
 
-@teaching_plan_bp.route('/<int:id>', methods=['PUT', 'OPTIONS'], strict_slashes=False)
+@teaching_plan_bp.route('/<int:id>', methods=['PUT'], strict_slashes=False)
 @inject
 def update_plan(id: int, teaching_plan_service: TeachingPlanService = Provide[Container.teaching_plan_service]):
     """
@@ -104,7 +102,7 @@ def update_plan(id: int, teaching_plan_service: TeachingPlanService = Provide[Co
         return jsonify({'message': 'Teaching plan not found'}), 404
     return jsonify(schema.dump(item)), 200
 
-@teaching_plan_bp.route('/<int:id>', methods=['DELETE', 'OPTIONS'], strict_slashes=False)
+@teaching_plan_bp.route('/<int:id>', methods=['DELETE'], strict_slashes=False)
 @inject
 def delete_plan(id: int, teaching_plan_service: TeachingPlanService = Provide[Container.teaching_plan_service]):
     """

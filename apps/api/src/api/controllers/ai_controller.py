@@ -23,7 +23,7 @@ def convert_keys_to_camel(data):
     else:
         return data
 
-@ai_bp.route('/generate', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@ai_bp.route('/generate', methods=['POST'], strict_slashes=False)
 @inject
 def generate(ai_service: AiService = Provide[Container.ai_service]):
     """
@@ -164,7 +164,7 @@ def get_task_status(task_id):
         })
     return jsonify({'status': res.status})
 
-@ai_bp.route('/summary', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@ai_bp.route('/summary', methods=['POST'], strict_slashes=False)
 @inject
 def summary(ai_service: AiService = Provide[Container.ai_service], 
             syllabus_service = Provide[Container.syllabus_service]):

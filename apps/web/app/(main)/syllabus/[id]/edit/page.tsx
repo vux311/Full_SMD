@@ -35,7 +35,7 @@ export default function Page() {
             ...defaultSyllabus,
             id: rawData.id,
             subjectId: rawData.subjectId,
-            programId: rawData.programId,
+            program_id: rawData.programId,
             academicYearId: rawData.academicYearId,
             lecturerId: rawData.lecturerId,
             status: rawData.status || "Draft",
@@ -90,8 +90,10 @@ export default function Page() {
                     weight: c.weight || 0,
                     method: c.method || "Tự luận",
                     criteria: c.criteria || "Theo đáp án",
-                    // Map cloIds array back to string if needed, or just handle empty
-                    clos: Array.isArray(c.cloIds) ? c.cloIds.join(", ") : (c.cloIds || "")
+                    // Map nested CLO objects back to string for the form
+                    clos: Array.isArray(c.clos) 
+                      ? c.clos.map((cls: any) => cls.syllabusCloCode || cls.syllabus_clo_code).join(", ") 
+                      : (c.cloIds || "")
                 }))
                 : [],
                 

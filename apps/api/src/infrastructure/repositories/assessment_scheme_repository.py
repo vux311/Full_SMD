@@ -17,11 +17,14 @@ class AssessmentSchemeRepository:
         # Load components eagerly
         return self.session.query(AssessmentScheme).options(joinedload(AssessmentScheme.components)).filter_by(syllabus_id=syllabus_id).all()
 
-    def create(self, data: dict) -> AssessmentScheme:
+    def create(self, data: dict, commit: bool = True) -> AssessmentScheme:
         s = AssessmentScheme(**data)
         self.session.add(s)
-        self.session.commit()
-        self.session.refresh(s)
+        if commit:
+            self.session.commit()
+            self.session.refresh(s)
+        else:
+            self.session.flush()
         return s
 
     def update(self, id: int, data: dict) -> Optional[AssessmentScheme]:

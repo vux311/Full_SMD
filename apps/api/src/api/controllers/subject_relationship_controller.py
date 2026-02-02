@@ -52,7 +52,7 @@ def get_tree(subject_id: int, service: SubjectRelationshipService = Provide[Cont
         "successors": successors_dump
     }), 200
 
-@subject_rel_bp.route('/', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@subject_rel_bp.route('/', methods=['POST'], strict_slashes=False)
 @inject
 def create_relationship(service: SubjectRelationshipService = Provide[Container.subject_relationship_service]):
     """
@@ -79,7 +79,7 @@ def create_relationship(service: SubjectRelationshipService = Provide[Container.
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
 
-@subject_rel_bp.route('/<int:id>', methods=['DELETE', 'OPTIONS'], strict_slashes=False)
+@subject_rel_bp.route('/<int:id>', methods=['DELETE'], strict_slashes=False)
 @inject
 def delete_relationship(id: int, service: SubjectRelationshipService = Provide[Container.subject_relationship_service]):
     """

@@ -13,6 +13,9 @@ class AcademicYearRepository:
     def get_by_id(self, id: int) -> Optional[AcademicYear]:
         return self.session.query(AcademicYear).filter_by(id=id).first()
 
+    def get_by_code(self, code: str) -> Optional[AcademicYear]:
+        return self.session.query(AcademicYear).filter_by(code=code).first()
+
     def create(self, data: dict) -> AcademicYear:
         ay = AcademicYear(**data)
         self.session.add(ay)

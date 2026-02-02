@@ -1,8 +1,21 @@
 from typing import List, Optional
+import json
 from datetime import datetime, timedelta
+
+from infrastructure.models.syllabus_model import Syllabus
+from infrastructure.models.syllabus_clo_model import SyllabusClo
+from infrastructure.models.clo_plo_mapping_model import CloPloMapping
+from infrastructure.models.syllabus_material_model import SyllabusMaterial
+from infrastructure.models.teaching_plan_model import TeachingPlan
+from infrastructure.models.assessment_scheme_model import AssessmentScheme
+from infrastructure.models.assessment_component_model import AssessmentComponent
+from infrastructure.models.rubric_model import Rubric
+from infrastructure.models.program_outcome_model import ProgramOutcome
+from infrastructure.models.workflow_log_model import WorkflowLog
+from infrastructure.models.student_subscription_model import StudentSubscription
+
 from infrastructure.repositories.syllabus_repository import SyllabusRepository
 from domain.constants import WorkflowStatus
-from infrastructure.models.workflow_log_model import WorkflowLog
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -27,7 +40,8 @@ class SyllabusService:
                  clo_plo_mapping_repository=None,
                  program_outcome_repository=None,
                  search_service=None,
-                 student_subscription_repository=None):
+                 student_subscription_repository=None,
+                 system_setting_service=None):
         self.repository = repository
         self.subject_repository = subject_repository
         self.program_repository = program_repository
@@ -48,6 +62,7 @@ class SyllabusService:
         self.program_outcome_repository = program_outcome_repository
         self.search_service = search_service
         self.student_subscription_repository = student_subscription_repository
+        self.system_setting_service = system_setting_service
 
     def _index_to_search(self, syllabus):
         """Helper to index a syllabus to Elasticsearch background/silent failure"""
@@ -70,38 +85,56 @@ class SyllabusService:
             logger.warning(f"Failed to index syllabus {syllabus.id}: {e}")
 
     def get_kpis(self):
-        """Calculate operational KPIs for Principal dashboard"""
-        from datetime import datetime
-        syllabuses = self.repository.get_all()
-        # total stats
-        total = len(syllabuses)
-        pending = len([s for s in syllabuses if 'PENDING' in (s.status or '').upper()])
+        """KPI Dashboard optimized with SQL Aggregation (PERF-001 & PERF-002)"""
+        from sqlalchemy import func, case, text
+        from infrastructure.models.syllabus_model import Syllabus
+        from infrastructure.models.workflow_log_model import WorkflowLog
+        from domain.constants import WorkflowStatus
+
+        session = self.repository.session
         
-        # Calculate avg review time (SUBMIT to first APPROVE)
-        review_times = []
+        # Chỉ tính là đang chờ duyệt nếu thuộc 3 trạng thái này
+        pending_list = [WorkflowStatus.PENDING_REVIEW, WorkflowStatus.PENDING_APPROVAL, WorkflowStatus.APPROVED]
+        
+        # PERF-002: Use SQL COUNT and CASE instead of loading all objects into memory
+        stats = session.query(
+            func.count(Syllabus.id).label('total'),
+            func.sum(case((func.upper(Syllabus.status).in_(pending_list), 1), else_=0)).label('pending'),
+            func.sum(case((func.upper(Syllabus.status) == WorkflowStatus.PUBLISHED, 1), else_=0)).label('completed')
+        ).first()
+        
+        total = stats.total or 0
+        pending = stats.pending or 0
+        completed_count = stats.completed or 0
+        
+        # PERF-001: Aggregation directly in SQL for avg review time
+        avg_hours = 0
         if self.workflow_log_repository:
-            logs = self.workflow_log_repository.session.query(WorkflowLog).order_by(WorkflowLog.created_at).all()
-            # Map syllabus -> [submit_time, first_approve_time]
-            timing = {}
-            for l in logs:
-                sid = l.syllabus_id
-                if sid not in timing: timing[sid] = [None, None]
-                
-                if l.action == 'SUBMIT' and not timing[sid][0]:
-                    timing[sid][0] = l.created_at
-                elif l.action == 'APPROVE' and timing[sid][0] and not timing[sid][1]:
-                    timing[sid][1] = l.created_at
+            # Subquery for first SUBMIT per syllabus
+            submits = session.query(
+                WorkflowLog.syllabus_id,
+                func.min(WorkflowLog.created_at).label('submit_time')
+            ).filter(WorkflowLog.action == 'SUBMIT').group_by(WorkflowLog.syllabus_id).subquery()
             
-            for sid, times in timing.items():
-                if times[0] and times[1]:
-                    delta = (times[1] - times[0]).total_seconds() / 3600 # hours
-                    review_times.append(delta)
-        
-        avg_hours = sum(review_times) / len(review_times) if review_times else 0
+            # Subquery for first APPROVE per syllabus
+            approves = session.query(
+                WorkflowLog.syllabus_id,
+                func.min(WorkflowLog.created_at).label('approve_time')
+            ).filter(WorkflowLog.action == 'APPROVE').group_by(WorkflowLog.syllabus_id).subquery()
+            
+            # Join and calculate avg duration in seconds (MSSQL DATEDIFF)
+            avg_seconds = session.query(
+                func.avg(func.datediff(text('second'), submits.c.submit_time, approves.c.approve_time))
+            ).join(approves, submits.c.syllabus_id == approves.c.syllabus_id)\
+             .filter(approves.c.approve_time > submits.c.submit_time).scalar()
+             
+            if avg_seconds:
+                avg_hours = float(avg_seconds) / 3600
         
         return {
             "total_syllabuses": total,
-            "pending_count": pending,
+            "pending_count": int(pending),
+            "completed_count": int(completed_count),
             "avg_review_time_hours": round(avg_hours, 1),
             "compliance_rate": round((total - pending) / total * 100, 1) if total > 0 else 0
         }
@@ -115,7 +148,18 @@ class SyllabusService:
         except Exception as e:
             logger.error(f"Error listing syllabuses: {str(e)}", exc_info=True)
             raise
-    
+
+    def list_public_syllabuses(self, filters: dict = None) -> List:
+        """New method for public access - Yuri Refactor Point 2"""
+        logger.info(f"Listing public syllabuses - filters: {filters}")
+        try:
+            result = self.repository.get_public_syllabuses(filters=filters)
+            logger.info(f"Retrieved {len(result)} public syllabuses")
+            return result
+        except Exception as e:
+            logger.error(f"Error listing public syllabuses: {str(e)}", exc_info=True)
+            raise
+
     def list_syllabuses_paginated(self, page: int, page_size: int, filters: dict = None):
         """Get paginated list of syllabuses"""
         logger.info(f"Listing syllabuses - page {page}, size {page_size}, filters: {filters}")
@@ -141,11 +185,11 @@ class SyllabusService:
             if not s: continue
             
             roles_to_notify = []
-            if item.state == WorkflowStatus.PENDING:
+            if item.state == WorkflowStatus.PENDING_REVIEW:
                 roles_to_notify = ['Head of Dept', 'Admin']
             elif item.state == WorkflowStatus.PENDING_APPROVAL:
-                roles_to_notify = ['Academic Affairs', 'Admin']
-            elif item.state == WorkflowStatus.PENDING_FINAL_APPROVAL:
+                roles_to_notify = ['Academic Affairs', 'AA', 'Admin']
+            elif item.state == WorkflowStatus.APPROVED:
                 roles_to_notify = ['Principal', 'Admin']
             
             if roles_to_notify:
@@ -224,7 +268,6 @@ class SyllabusService:
             raise ValueError('Invalid lecturer_id')
         
         # Check for duplicate syllabus (same combo + same status)
-        from infrastructure.models.syllabus_model import Syllabus
         target_status = data.get('status', 'DRAFT')
         existing = self.repository.session.query(Syllabus).filter_by(
             subject_id=subject_id,
@@ -256,71 +299,90 @@ class SyllabusService:
             # 1. Save CLOs
             if self.syllabus_clo_repository:
                 for item in clos_data:
-                    raw_plo_mappings = item.pop('plo_mappings', {}) or item.pop('ploMappings', {})
-                    # Standardize to dict
-                    plo_mappings = {}
+                    # Capture new 'mappings' field from frontend
+                    mappings_data = item.pop('mappings', []) or []
+                    
+                    # Capture legacy mappings format
+                    raw_plo_mappings = item.pop('plo_mappings_raw', {}) or item.pop('plo_mappings', {}) or item.pop('ploMappings', {})
+                    
+                    # Standardize legacy formats to dict {plo_code: level}
+                    legacy_plo_mappings = {}
                     if isinstance(raw_plo_mappings, list):
                         for m in raw_plo_mappings:
                             if isinstance(m, dict) and ('code' in m or 'ploCode' in m) and 'level' in m:
                                 code = m.get('code') or m.get('ploCode')
-                                plo_mappings[code] = m['level']
+                                legacy_plo_mappings[code] = m['level']
                     elif isinstance(raw_plo_mappings, dict):
-                        plo_mappings = raw_plo_mappings
+                        legacy_plo_mappings = raw_plo_mappings
+                    
                     item['syllabus_id'] = sid
-                    new_clo = self.syllabus_clo_repository.create(item)
+                    # Create CLO without committing
+                    new_clo = self.syllabus_clo_repository.create(item, commit=False)
                     
                     # Save PLO mappings
-                    if plo_mappings and self.clo_plo_mapping_repository and self.program_outcome_repository:
-                        from infrastructure.models.program_outcome_model import ProgramOutcome
-                        for plo_code, level in plo_mappings.items():
-                            if not level: continue
-                            
-                            # Clean level (ensure it's I, R, M, or A)
-                            clean_level = str(level).strip().upper()[0] if level else ""
-                            if clean_level not in ('I', 'R', 'M', 'A'):
-                                # AI sometimes sends H, M, L. Map them to IRMA (I: Introduced, R: Reinforced, M: Mastered, A: Assessed)
-                                ai_to_irma = {'H': 'M', 'M': 'R', 'L': 'I'}
-                                clean_level = ai_to_irma.get(clean_level, 'I')
-                            
-                            if plo:
-                                self.clo_plo_mapping_repository.create({
-                                    'syllabus_clo_id': new_clo.id,
-                                    'program_plo_id': plo.id,
-                                    'level': clean_level if clean_level in ('I', 'R', 'M', 'A') else 'I'
-                                })
+                    if self.clo_plo_mapping_repository:
+                        # Priority 1: Use explicit mappings (program_plo_id + level)
+                        if mappings_data:
+                            for m in mappings_data:
+                                if m.get('program_plo_id'):
+                                    self.clo_plo_mapping_repository.create({
+                                        'syllabus_clo_id': new_clo.id,
+                                        'program_plo_id': m.get('program_plo_id'),
+                                        'level': m.get('level', 'I')
+                                    }, commit=False)
+                        
+                        # Priority 2: Use legacy mappings (plo_code) if no explicit ones provided
+                        elif legacy_plo_mappings and self.program_outcome_repository:
+                            from infrastructure.models.program_outcome_model import ProgramOutcome
+                            for plo_code, level in legacy_plo_mappings.items():
+                                if not level: continue
+                                
+                                # Clean level (ensure it's I, R, M, or A)
+                                clean_level = str(level).strip().upper()[0] if level else "I"
+                                if clean_level not in ('I', 'R', 'M', 'A'):
+                                    # AI sometimes sends H, M, L. Map them to IRMA
+                                    ai_to_irma = {'H': 'M', 'M': 'R', 'L': 'I'}
+                                    clean_level = ai_to_irma.get(clean_level, 'I')
+                                
+                                plo = self.program_outcome_repository.session.query(ProgramOutcome).filter_by(
+                                    program_id=program_id, code=plo_code
+                                ).first()
+                                
+                                if plo:
+                                    self.clo_plo_mapping_repository.create({
+                                        'syllabus_clo_id': new_clo.id,
+                                        'program_plo_id': plo.id,
+                                        'level': clean_level
+                                    }, commit=False)
 
             # 2. Save Materials
             if self.syllabus_material_repository:
                 for item in materials_data:
                     item['syllabus_id'] = sid
-                    self.syllabus_material_repository.create(item)
+                    self.syllabus_material_repository.create(item, commit=False)
 
             # 3. Save Teaching Plans
             if self.teaching_plan_repository:
                 for item in plans_data:
                     item['syllabus_id'] = sid
-                    self.teaching_plan_repository.create(item)
+                    self.teaching_plan_repository.create(item, commit=False)
 
             # 4. Save Assessment Schemes (Nested)
             if self.assessment_scheme_repository:
                 for scheme in schemes_data:
                     components = scheme.pop('components', [])
                     scheme['syllabus_id'] = sid
-                    new_scheme = self.assessment_scheme_repository.create(scheme)
+                    new_scheme = self.assessment_scheme_repository.create(scheme, commit=False)
                     if self.assessment_component_repository:
                         for comp in components:
                             rubrics = comp.pop('rubrics', [])
                             criteria = comp.pop('criteria', None)
                             clo_ids = comp.pop('clo_ids', [])
                             
-                            # Handle clo_ids if it's a string (from AI or legacy UI)
+                            # Handle clo_ids if it's a string
                             final_clo_ids = []
                             if isinstance(clo_ids, str):
-                                # If it's a comma separated string of codes like "CLO1, CLO2"
-                                # we should ideally find the IDs. But since they are newly created,
-                                # we might need to search the session for the newly created CLOs.
                                 codes = [c.strip() for c in clo_ids.split(',') if c.strip()]
-                                # Search for CLOs in the same syllabus we just created/flushed
                                 for code in codes:
                                     existing_clo = self.repository.session.query(SyllabusClo).filter_by(
                                         syllabus_id=sid, code=code
@@ -328,44 +390,44 @@ class SyllabusService:
                                     if existing_clo:
                                         final_clo_ids.append(existing_clo.id)
                             elif isinstance(clo_ids, list):
-                                # If it's a list of integers or strings
                                 for cid in clo_ids:
                                     if isinstance(cid, int):
                                         final_clo_ids.append(cid)
                                     elif isinstance(cid, str):
-                                        # Try to find by code
                                         existing_clo = self.repository.session.query(SyllabusClo).filter_by(
                                             syllabus_id=sid, code=cid
                                         ).first()
                                         if existing_clo:
                                             final_clo_ids.append(existing_clo.id)
 
-                            # Remove fields not in AssessmentComponent model to avoid TypeError
+                            # Remove fields not in AssessmentComponent model
                             comp_data = {
                                 'name': comp.get('name'),
+                                'method': comp.get('method'),
+                                'criteria': criteria,
                                 'weight': comp.get('weight'),
                                 'scheme_id': new_scheme.id
                             }
-                            new_comp = self.assessment_component_repository.create(comp_data)
+                            new_comp = self.assessment_component_repository.create(comp_data, commit=False)
                             
                             # Create rubric if criteria provided
                             if criteria and self.rubric_repository:
                                 self.rubric_repository.create({
                                     'component_id': new_comp.id,
                                     'criteria': criteria,
-                                    'max_score': 10.0 # Default max score
-                                })
+                                    'max_score': 10.0
+                                }, commit=False)
                             
                             # Create rubric list if provided
                             if rubrics and self.rubric_repository:
                                 for rub in rubrics:
                                     rub['component_id'] = new_comp.id
-                                    self.rubric_repository.create(rub)
+                                    self.rubric_repository.create(rub, commit=False)
                                     
                             # Create CLO mappings
                             if final_clo_ids and self.assessment_clo_repository:
                                 for clo_id in final_clo_ids:
-                                    self.assessment_clo_repository.add_mapping(new_comp.id, clo_id)
+                                    self.assessment_clo_repository.add_mapping(new_comp.id, clo_id, commit=False)
             
             # Commit all at once
             self.repository.session.commit()
@@ -385,26 +447,40 @@ class SyllabusService:
             logger.error(f"Error creating syllabus: {str(e)}", exc_info=True)
             raise
 
-    def update_syllabus(self, id: int, data: dict):
+    def update_syllabus(self, id: int, data: dict, user_id: int = None, user_role: str = None):
         import json
         from infrastructure.models.syllabus_model import Syllabus
+        from infrastructure.models.syllabus_clo_model import SyllabusClo
         
         logger.info(f"Updating syllabus {id}. Data keys: {list(data.keys())}")
         
-        # Check current status before allowing update
-        s = self.get_syllabus(id)
+        # Check current status before allowing update - use for_update to avoid race
+        s = self.repository.get_by_id(id, for_update=True)
         if not s:
             return None
         
+        # SEC-001 IDOR: Check ownership
+        if user_id and user_role != 'Admin':
+            if s.lecturer_id != user_id:
+                raise ValueError("Bạn không có quyền chỉnh sửa đề cương này (không phải owner).")
+        
         current_status = (s.status or '').upper()
-        if current_status not in ('DRAFT', 'REJECTED', 'RETURNED'):
-            raise ValueError(f"Cannot update syllabus in {s.status} status")
+        # Block update if status is PUBLISHED or any other status not in DRAFT/RETURNED
+        if current_status == WorkflowStatus.PUBLISHED:
+            raise ValueError(f"Cannot update a PUBLISHED syllabus. Please create a new version.")
+        
+        if current_status not in (WorkflowStatus.DRAFT, WorkflowStatus.RETURNED):
+            raise ValueError(f"Cannot update syllabus in {s.status} status. It is either pending or permanently rejected.")
 
         # Extract child data
         clos_data = data.pop('clos', None)
         materials_data = data.pop('materials', None)
         plans_data = data.pop('teaching_plans', None)
         schemes_data = data.pop('assessment_schemes', None)
+        
+        # DI-001: Validate weight BEFORE any DB operations (deletion/creation)
+        if schemes_data is not None:
+            self._validate_assessment_weights(schemes_data)
         
         # Process JSON fields
         if 'time_allocation' in data and data['time_allocation'] is not None:
@@ -421,53 +497,90 @@ class SyllabusService:
         
         # Use transaction for atomic update
         try:
-            # Update Header
+            # Update Header (Note: we use flush=False in repo update typically, 
+            # but let's assume we want to control commit here)
             updated_syllabus = self.repository.update(id, update_data)
             sid = updated_syllabus.id
-
-            # Update Children (Delete and Re-insert pattern for simplicity in draft saving)
             program_id = updated_syllabus.program_id
-            
-            # 1. Update CLOs
+
+            # 1. Update CLOs (Smart In-place Update to preserve IDs for Assessment mappings)
             if clos_data is not None and self.syllabus_clo_repository:
                 from infrastructure.models.syllabus_clo_model import SyllabusClo
-                self.repository.session.query(SyllabusClo).filter_by(syllabus_id=sid).delete()
+                # Map existing CLOs for easy lookup
+                existing_clos = self.repository.session.query(SyllabusClo).filter_by(syllabus_id=sid).all()
+                current_clos_map = {clo.id: clo for clo in existing_clos}
+                
                 for item in clos_data:
-                    raw_plo_mappings = item.pop('plo_mappings', {}) or item.pop('ploMappings', {})
-                    # Standardize to dict
-                    plo_mappings = {}
+                    clo_id = item.get('id')
+                    mappings_data = item.pop('mappings', []) or []
+                    raw_plo_mappings = item.pop('plo_mappings_raw', {}) or item.pop('plo_mappings', {}) or item.pop('ploMappings', {})
+                    
+                    # Process legacy/standardize formats
+                    legacy_plo_mappings = {}
                     if isinstance(raw_plo_mappings, list):
                         for m in raw_plo_mappings:
                             if isinstance(m, dict) and ('code' in m or 'ploCode' in m) and 'level' in m:
                                 code = m.get('code') or m.get('ploCode')
-                                plo_mappings[code] = m['level']
+                                legacy_plo_mappings[code] = m['level']
                     elif isinstance(raw_plo_mappings, dict):
-                        plo_mappings = raw_plo_mappings
-                    item['syllabus_id'] = sid
-                    new_clo = self.syllabus_clo_repository.create(item)
-                    
-                    # Save PLO mappings
-                    if plo_mappings and self.clo_plo_mapping_repository and self.program_outcome_repository:
-                        from infrastructure.models.program_outcome_model import ProgramOutcome
-                        for plo_code, level in plo_mappings.items():
-                            if not level: continue
-                            
-                            clean_level = str(level).strip().upper()[0]
-                            if clean_level not in ('I', 'R', 'M', 'A'):
-                                # Map H, M, L to I, R, M
-                                ai_to_irma = {'H': 'M', 'M': 'R', 'L': 'I'}
-                                clean_level = ai_to_irma.get(clean_level, 'I')
+                        legacy_plo_mappings = raw_plo_mappings
 
-                            plo = self.program_outcome_repository.session.query(ProgramOutcome).filter_by(
-                                program_id=program_id, code=plo_code
-                            ).first()
-                            
-                            if plo:
-                                self.clo_plo_mapping_repository.create({
-                                    'syllabus_clo_id': new_clo.id,
-                                    'program_plo_id': plo.id,
-                                    'level': clean_level
-                                })
+                    # Case A: Update Existing or Case B: Create New
+                    if clo_id and clo_id in current_clos_map:
+                        # Case A: Update Existing
+                        existing_clo = current_clos_map.pop(clo_id)
+                        for key, value in item.items():
+                            if hasattr(existing_clo, key):
+                                setattr(existing_clo, key, value)
+                        target_clo = existing_clo
+                        # Flush to ensure any field changes are sent to DB
+                        self.repository.session.flush()
+                    else:
+                        # Case B: Create New
+                        item['syllabus_id'] = sid
+                        target_clo = self.syllabus_clo_repository.create(item, commit=False)
+                    
+                    # FIX: Duplicate Mapping - Delete ALL old mappings before adding new ones
+                    if self.clo_plo_mapping_repository:
+                        # Delete existing mappings for this CLO
+                        from infrastructure.models.clo_plo_mapping_model import CloPloMapping
+                        self.repository.session.query(CloPloMapping).filter_by(syllabus_clo_id=target_clo.id).delete()
+                        self.repository.session.flush()
+
+                        # Priority 1: Use explicit mappings
+                        if mappings_data:
+                            for m in mappings_data:
+                                if m.get('program_plo_id'):
+                                    self.clo_plo_mapping_repository.create({
+                                        'syllabus_clo_id': target_clo.id,
+                                        'program_plo_id': m.get('program_plo_id'),
+                                        'level': m.get('level', 'I')
+                                    }, commit=False)
+                        
+                        # Priority 2: Use legacy/raw mappings
+                        elif legacy_plo_mappings and self.program_outcome_repository:
+                            from infrastructure.models.program_outcome_model import ProgramOutcome
+                            for plo_code, level in legacy_plo_mappings.items():
+                                if not level: continue
+                                clean_level = str(level).strip().upper()[0] if level else "I"
+                                if clean_level not in ('I', 'R', 'M', 'A'):
+                                    ai_to_irma = {'H': 'M', 'M': 'R', 'L': 'I'}
+                                    clean_level = ai_to_irma.get(clean_level, 'I')
+                                
+                                plo = self.program_outcome_repository.session.query(ProgramOutcome).filter_by(
+                                    program_id=program_id, code=plo_code
+                                ).first()
+                                if plo:
+                                    self.clo_plo_mapping_repository.create({
+                                        'syllabus_clo_id': target_clo.id,
+                                        'program_plo_id': plo.id,
+                                        'level': clean_level
+                                    }, commit=False)
+
+                # Process Deletions (Leftovers in map)
+                for leftover_id, leftover_clo in current_clos_map.items():
+                    self.repository.session.delete(leftover_clo)
+                self.repository.session.flush()
 
             # 2. Update Materials
             if materials_data is not None and self.syllabus_material_repository:
@@ -475,7 +588,7 @@ class SyllabusService:
                 self.repository.session.query(SyllabusMaterial).filter_by(syllabus_id=sid).delete()
                 for item in materials_data:
                     item['syllabus_id'] = sid
-                    self.syllabus_material_repository.create(item)
+                    self.syllabus_material_repository.create(item, commit=False)
 
             # 3. Update Teaching Plans
             if plans_data is not None and self.teaching_plan_repository:
@@ -483,22 +596,20 @@ class SyllabusService:
                 self.repository.session.query(TeachingPlan).filter_by(syllabus_id=sid).delete()
                 for item in plans_data:
                     item['syllabus_id'] = sid
-                    self.teaching_plan_repository.create(item)
+                    self.teaching_plan_repository.create(item, commit=False)
 
-            # 4. Update Assessment Schemes (Nested)
+            # 4. Update Assessment Schemes
             if schemes_data is not None and self.assessment_scheme_repository:
                 from infrastructure.models.assessment_scheme_model import AssessmentScheme
-                from infrastructure.models.assessment_component_model import AssessmentComponent
-                from infrastructure.models.rubric_model import Rubric
-                
-                # Delete existing schemes (cascades should handle components/rubrics if configured, 
-                # but we'll be thorough or rely on DB cascades)
-                self.repository.session.query(AssessmentScheme).filter_by(syllabus_id=sid).delete()
+                existing_schemes = self.repository.session.query(AssessmentScheme).filter_by(syllabus_id=sid).all()
+                for scheme_obj in existing_schemes:
+                    self.repository.session.delete(scheme_obj)
+                self.repository.session.flush()
                 
                 for scheme in schemes_data:
                     components = scheme.pop('components', [])
                     scheme['syllabus_id'] = sid
-                    new_scheme = self.assessment_scheme_repository.create(scheme)
+                    new_scheme = self.assessment_scheme_repository.create(scheme, commit=False)
                     
                     if self.assessment_component_repository:
                         for comp in components:
@@ -506,42 +617,63 @@ class SyllabusService:
                             criteria = comp.pop('criteria', None)
                             clo_ids = comp.pop('clo_ids', [])
                             
+                            final_clo_ids = []
+                            if isinstance(clo_ids, str):
+                                codes = [c.strip() for c in clo_ids.split(',') if c.strip()]
+                                for code in codes:
+                                    existing_clo = self.repository.session.query(SyllabusClo).filter_by(
+                                        syllabus_id=sid, code=code
+                                    ).first()
+                                    if existing_clo:
+                                        final_clo_ids.append(existing_clo.id)
+                            elif isinstance(clo_ids, list):
+                                for cid in clo_ids:
+                                    if isinstance(cid, int):
+                                        final_clo_ids.append(cid)
+                                    elif isinstance(cid, str):
+                                        existing_clo = self.repository.session.query(SyllabusClo).filter_by(
+                                            syllabus_id=sid, code=cid
+                                        ).first()
+                                        if existing_clo:
+                                            final_clo_ids.append(existing_clo.id)
+
                             comp_data = {
                                 'name': comp.get('name'),
+                                'method': comp.get('method'),
+                                'criteria': criteria,
                                 'weight': comp.get('weight'),
                                 'scheme_id': new_scheme.id
                             }
-                            new_comp = self.assessment_component_repository.create(comp_data)
+                            new_comp = self.assessment_component_repository.create(comp_data, commit=False)
                             
-                            # Create rubric if criteria provided
                             if criteria and self.rubric_repository:
                                 self.rubric_repository.create({
                                     'component_id': new_comp.id,
                                     'criteria': criteria,
                                     'max_score': 10.0
-                                })
-                                
-                            if self.rubric_repository and rubrics:
+                                }, commit=False)
+                            
+                            if rubrics and self.rubric_repository:
                                 for rub in rubrics:
                                     rub['component_id'] = new_comp.id
-                                    self.rubric_repository.create(rub)
+                                    self.rubric_repository.create(rub, commit=False)
                                     
-                            # Create CLO mappings
-                            if clo_ids and self.assessment_clo_repository:
-                                for clo_id in clo_ids:
-                                    self.assessment_clo_repository.add_mapping(new_comp.id, clo_id)
+                            if final_clo_ids and self.assessment_clo_repository:
+                                for clo_id in final_clo_ids:
+                                    self.assessment_clo_repository.add_mapping(new_comp.id, clo_id, commit=False)
 
+            # Final Commit for everything
             self.repository.session.commit()
-            logger.info(f"Successfully updated syllabus {sid} with children")
+            logger.info(f"Successfully updated syllabus {sid} with all children")
             
-            # Non-blocking index to search
+            # Re-index
             self._index_to_search(updated_syllabus)
             
             return updated_syllabus
 
         except Exception as e:
             self.repository.session.rollback()
-            logger.error(f"Error updating syllabus {id}: {str(e)}", exc_info=True)
+            logger.error(f"Error updating syllabus: {str(e)}", exc_info=True)
             raise
 
     def delete_syllabus(self, id: int) -> bool:
@@ -554,11 +686,17 @@ class SyllabusService:
         return success
 
     # Workflow methods
-    def submit_syllabus(self, id: int, user_id: int):
+    def submit_syllabus(self, id: int, user_id: int, user_role: str = None):
         """Submit syllabus for evaluation with comprehensive validation."""
-        s = self.repository.get_details(id)
+        # BL-001: Use for_update to prevent race condition during submission
+        s = self.repository.get_details(id, for_update=True)
         if not s:
             return None
+        
+        # SEC-002 IDOR: Check ownership
+        if user_id and user_role != 'Admin':
+            if s.lecturer_id != user_id:
+                raise ValueError("Bạn không có quyền gửi duyệt đề cương này (không phải owner).")
         
         current_status = (s.status or '').upper()
         if current_status not in WorkflowStatus.VALID_FOR_SUBMISSION:
@@ -594,14 +732,14 @@ class SyllabusService:
             raise ValueError(" | ".join(errors))
         
         from_status = s.status
-        updated = self.repository.update(id, {'status': WorkflowStatus.PENDING})
+        updated = self.repository.update(id, {'status': WorkflowStatus.PENDING_REVIEW})
         if self.workflow_log_repository:
             self.workflow_log_repository.create({
                 'syllabus_id': id,
                 'actor_id': user_id,
                 'action': 'SUBMIT',
                 'from_status': from_status,
-                'to_status': WorkflowStatus.PENDING,
+                'to_status': WorkflowStatus.PENDING_REVIEW,
                 'comment': 'Đã kiểm tra tính hợp lệ và gửi duyệt.'
             })
 
@@ -609,7 +747,7 @@ class SyllabusService:
         if self.current_workflow_repository:
             due_date = datetime.now() + timedelta(days=7)
             self.current_workflow_repository.update_or_create(id, {
-                'state': WorkflowStatus.PENDING,
+                'state': WorkflowStatus.PENDING_REVIEW,
                 'assigned_user_id': None, # Can be assigned to specific HoD if needed
                 'due_date': due_date,
                 'last_action_at': datetime.now()
@@ -618,7 +756,7 @@ class SyllabusService:
         # Notify HoD when a syllabus is submitted
         if self.notification_service:
             self.notification_service.notify_roles(
-                roles=['Head of Dept', 'Academic Affairs', 'Admin'],
+                roles=['Head of Dept', 'Academic Affairs', 'AA', 'Admin'],
                 title='Đề cương mới được gửi',
                 message=f'Giảng viên {s.lecturer.full_name if s.lecturer else "N/A"} vừa gửi duyệt môn {s.subject.code if s.subject else "N/A"}.',
                 link=f'/syllabus/{id}',
@@ -628,8 +766,12 @@ class SyllabusService:
         return updated
 
     def evaluate_syllabus(self, id: int, user_id: int, action: str, comment: Optional[str] = None):
-        """Evaluate syllabus. Can only evaluate PENDING, PENDING APPROVAL, or PENDING FINAL APPROVAL syllabuses."""
-        s = self.get_syllabus(id)
+        """Duyệt đề cương đồng bộ 5 bước - Yuri Refactor"""
+        logger.info(f"Evaluate: Syllabus {id} by User {user_id}")
+        
+        # BL-002: Race Condition - Use with_for_update to lock the record
+        # FIX: Use get_details with for_update=True
+        s = self.repository.get_details(id, for_update=True)
         if not s:
             return None
         
@@ -640,127 +782,149 @@ class SyllabusService:
             user_role_names = [ur.role.name for ur in user.roles]
         
         action = action.upper()
-        if action not in ('APPROVE', 'REJECT'):
-            raise ValueError(f'Invalid action: {action}. Must be APPROVE or REJECT')
+        if action not in ('APPROVE', 'REJECT', 'RETURN'):
+            raise ValueError(f'Invalid action: {action}. Must be APPROVE, REJECT or RETURN')
         
-        current_status = (s.status or '').upper()
-        # Use constants from WorkflowStatus
-        current_status = s.status.upper()
+        current_status = (s.status or WorkflowStatus.DRAFT).upper()
         if current_status not in WorkflowStatus.VALID_FOR_EVALUATION:
              raise ValueError(
                 f'Can only evaluate syllabuses in {WorkflowStatus.VALID_FOR_EVALUATION}. Current status: {s.status}'
             )
         
         from_status = s.status
+        new_status = from_status
+
         if action == 'APPROVE':
-            # Role-based workflow validation and transitions using WorkflowStatus constants
-            if current_status == WorkflowStatus.PENDING:
+            # Bước 1: HOD duyệt (Pending Review -> Pending Approval)
+            if current_status == WorkflowStatus.PENDING_REVIEW:
                 if not any(r in user_role_names for r in ['Head of Dept', 'Admin']):
-                    raise ValueError('Only Head of Department (HoD) or Admin can approve at this stage')
+                    raise ValueError("Chỉ Trưởng bộ môn mới có quyền duyệt ở bước này.")
                 new_status = WorkflowStatus.PENDING_APPROVAL
+            
+            # Bước 2: AA duyệt (Pending Approval -> Approved)
             elif current_status == WorkflowStatus.PENDING_APPROVAL:
-                if not any(r in user_role_names for r in ['Academic Affairs', 'Admin']):
-                    raise ValueError('Only Academic Affairs or Admin can approve at this stage')
-                new_status = WorkflowStatus.PENDING_FINAL_APPROVAL
-            elif current_status == WorkflowStatus.PENDING_FINAL_APPROVAL:
+                if not any(r in user_role_names for r in ['Academic Affairs', 'AA', 'Admin']):
+                    raise ValueError("Chỉ Phòng Đào tạo (AA) mới có quyền duyệt ở bước này.")
+                new_status = WorkflowStatus.APPROVED
+            
+            # Bước 3: Principal duyệt cuối (Approved -> Published)
+            elif current_status == WorkflowStatus.APPROVED:
                 if not any(r in user_role_names for r in ['Principal', 'Admin']):
-                    raise ValueError('Only Principal or Admin can approve at this stage')
+                    raise ValueError("Chỉ Hiệu trưởng mới có quyền phê duyệt xuất bản.")
                 new_status = WorkflowStatus.PUBLISHED
             else:
-                new_status = WorkflowStatus.APPROVED
+                # BL-003: Raise exception instead of silent fallback
+                raise ValueError(f"Quyền hạn của bạn không phù hợp để duyệt ở trạng thái {current_status}")
+        elif action == 'RETURN':
+            if not comment:
+                raise ValueError('Comment là bắt buộc khi trả về để sửa chữa.')
+            new_status = WorkflowStatus.RETURNED
         else:  # REJECT
             if not comment:
-                raise ValueError('Comment is required when rejecting')
-            new_status = WorkflowStatus.RETURNED
+                raise ValueError('Comment là bắt buộc khi từ chối vĩnh viễn.')
+            new_status = WorkflowStatus.REJECTED
         
-        updated = self.repository.update(id, {'status': new_status})
-        
-        # Take Immutable Snapshot if approved/published
-        if action == 'APPROVE' and new_status in WorkflowStatus.PUBLIC_STATUSES:
-             if self.snapshot_service:
-                 try:
-                     # Get full details for snapshot
-                     full_syllabus = self.repository.get_details(id)
-                     if full_syllabus:
+        try:
+            # 1. Cập nhật trạng thái trong DB và Commit ngay
+            update_data = {'status': new_status}
+            if new_status == WorkflowStatus.PUBLISHED:
+                update_data['is_active'] = True
+                update_data['publish_date'] = datetime.now()
+            
+            updated = self.repository.update(id, update_data)
+            self.repository.session.commit()
+            logger.info(f"Sync: Syllabus {id} status updated to {new_status} and committed")
+            
+            # 2. Ghi log workflow
+            if self.workflow_log_repository:
+                self.workflow_log_repository.create({
+                    'syllabus_id': id,
+                    'actor_id': user_id,
+                    'action': action,
+                    'from_status': from_status,
+                    'to_status': new_status,
+                    'comment': comment
+                })
+
+            # 3. SYNC: Cập nhật Search Engine ngay lập tức với trạng thái mới
+            # Refetch to ensure we have the latest state (already committed)
+            s_final = self.repository.get_details(id)
+            self._index_to_search(s_final)
+
+            # 4. SYNC: Dọn dẹp bảng Current Workflow nếu đã hoàn tất hoặc bị trả về/từ chối
+            if self.current_workflow_repository:
+                if new_status in (WorkflowStatus.PUBLISHED, WorkflowStatus.RETURNED, WorkflowStatus.REJECTED):
+                    try:
+                        if hasattr(self.current_workflow_repository, 'delete'):
+                            self.current_workflow_repository.delete(id)
+                        elif hasattr(self.current_workflow_repository, 'delete_by_syllabus_id'):
+                            self.current_workflow_repository.delete_by_syllabus_id(id)
+                        logger.info(f"Sync: Workflow record for {id} cleaned up.")
+                    except Exception as e:
+                        logger.warning(f"Failed to clean up workflow for syllabus {id}: {e}")
+                else:
+                    # Update bước tiếp theo với deadline từ System Settings (mặc định 5 ngày)
+                    deadline_days = 5
+                    if self.system_setting_service:
+                        deadline_days = self.system_setting_service.get_setting('workflow_deadline_days', 5)
+                    
+                    due_date = datetime.now() + timedelta(days=deadline_days)
+                    self.current_workflow_repository.update_or_create(id, {
+                        'state': new_status,
+                        'assigned_user_id': None,
+                        'due_date': due_date,
+                        'last_action_at': datetime.now()
+                    })
+
+            # 5. Take Immutable Snapshot if approved/published
+            if action == 'APPROVE' and new_status in WorkflowStatus.PUBLIC_STATUSES:
+                 if self.snapshot_service:
+                     try:
+                         # Di chuyển import vào đây để tránh Circular Import
                          from api.schemas.syllabus_schema import SyllabusSchema
                          schema = SyllabusSchema()
-                         # We use dump() to get a clean JSON-serializable dict
-                         snapshot_dict = schema.dump(full_syllabus)
+                         snapshot_dict = schema.dump(s_final)
                          self.snapshot_service.create_snapshot(
                              syllabus_id=id,
-                             version=full_syllabus.version or "1.0",
+                             version=s_final.version or "1.0",
                              data=snapshot_dict,
                              created_by=user_id
                          )
                          logger.info(f"Snapshot created for syllabus {id} at status {new_status}")
-                 except Exception as e:
-                     logger.error(f"Failed to create snapshot for syllabus {id}: {str(e)}")
+                     except Exception as e:
+                         logger.error(f"Failed to create snapshot for syllabus {id}: {str(e)}")
 
-        if self.workflow_log_repository:
-            self.workflow_log_repository.create({
-                'syllabus_id': id,
-                'actor_id': user_id,
-                'action': action,
-                'from_status': from_status,
-                'to_status': new_status,
-                'comment': comment
-            })
-
-        # Update current workflow tracking
-        if self.current_workflow_repository:
-            if new_status in WorkflowStatus.PUBLIC_STATUSES or new_status == WorkflowStatus.REJECTED:
-                # Workflow finished or syllabus rejected - stop tracking deadline
-                # NOTE: RETURNED might still need a deadline for lecturer to fix
-                self.current_workflow_repository.update_or_create(id, {
-                    'state': new_status,
-                    'assigned_user_id': None,
-                    'due_date': None,
-                    'last_action_at': datetime.now()
-                })
-            else:
-                # Next stage of evaluation - set new deadline (e.g. 5 days for next level)
-                due_date = datetime.now() + timedelta(days=5)
-                self.current_workflow_repository.update_or_create(id, {
-                    'state': new_status,
-                    'assigned_user_id': None, # Ideally assign to next role's users
-                    'due_date': due_date,
-                    'last_action_at': datetime.now()
-                })
-        
-        # Notify the lecturer about the result
-        if s.lecturer_id and self.notification_service:
-            action_text = 'duyệt' if action == 'APPROVE' else 'trả lại'
-            self.notification_service.send_notification(
-                user_id=s.lecturer_id,
-                title=f'Đề cương được {action_text}',
-                message=f'Môn {s.subject.code if s.subject else "N/A"} đã được {action_text}. Trạng thái: {new_status}',
-                link=f'/syllabus/{id}',
-                event_name='syllabus_evaluated'
-            )
-        
-        # Notify subscribers if published
-        if new_status == WorkflowStatus.PUBLISHED and self.student_subscription_repository and self.notification_service:
-            subscribers = self.student_subscription_repository.session.query(
-                self.student_subscription_repository.session.query(User).filter(
-                    User.id == StudentSubscription.student_id,
-                    StudentSubscription.subject_id == s.subject_id
-                ).exists()
-            ).all()
-            # Wait, I should probably use the repository method if it exists or just query here.
-            # Let's use a simpler query.
-            from infrastructure.models.student_subscription_model import StudentSubscription
-            subs = self.student_subscription_repository.session.query(StudentSubscription).filter_by(subject_id=s.subject_id).all()
-            for sub in subs:
+            # 6. Thông báo cho Giảng viên
+            if s.lecturer_id and self.notification_service:
+                action_text = 'duyệt' if action == 'APPROVE' else 'trả lại'
                 self.notification_service.send_notification(
-                    user_id=sub.student_id,
-                    title='Cập nhật đề cương môn học',
-                    message=f'Đề cương môn {s.subject.code if s.subject else "N/A"} đã được xuất bản phiên bản mới.',
+                    user_id=s.lecturer_id,
+                    title=f'Đề cương được {action_text}',
+                    message=f'Môn {s.subject.code if s.subject else "N/A"} đã được {action_text}. Trạng thái mới: {new_status}',
                     link=f'/syllabus/{id}',
-                    event_name='syllabus_published',
-                    send_email=True
+                    event_name='syllabus_evaluated'
                 )
             
-        return updated
+            # 7. Thông báo cho SV nếu đã Publish
+            if new_status == WorkflowStatus.PUBLISHED and self.student_subscription_repository and self.notification_service:
+                from infrastructure.models.student_subscription_model import StudentSubscription
+                subs = self.student_subscription_repository.session.query(StudentSubscription).filter_by(subject_id=s.subject_id).all()
+                for sub in subs:
+                    self.notification_service.send_notification(
+                        user_id=sub.student_id,
+                        title='Cập nhật đề cương môn học',
+                        message=f'Đề cương môn {s.subject.code if s.subject else "N/A"} đã được xuất bản phiên bản mới.',
+                        link=f'/syllabus/{id}',
+                        event_name='syllabus_published',
+                        send_email=True
+                    )
+            
+            return updated
+            
+        except Exception as e:
+            self.repository.session.rollback()
+            logger.error(f"Critical Error in evaluate_syllabus: {str(e)}")
+            raise e
 
     def get_workflow_logs(self, syllabus_id: int):
         if not self.workflow_log_repository:

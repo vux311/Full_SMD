@@ -17,8 +17,8 @@ import { Badge } from "@/components/ui/badge";
 interface SnapshotItem {
     id: number;
     version: string;
-    created_at: string;
-    created_by: string;
+    createdAt: string;
+    createdBy: string;
 }
 
 interface DiffAnalysis {
@@ -110,11 +110,11 @@ export default function SyllabusHistory({ syllabusId }: { syllabusId: number }) 
                                             <div className="flex justify-between items-start mb-1">
                                                 <Badge variant="outline">v{s.version}</Badge>
                                                 <div className="text-[10px] text-slate-400 flex items-center gap-1">
-                                                    <Calendar className="w-3 h-3" /> {new Date(s.created_at).toLocaleDateString()}
+                                                    <Calendar className="w-3 h-3" /> {s.createdAt && !isNaN(Date.parse(s.createdAt)) ? new Date(s.createdAt).toLocaleDateString() : 'N/A'}
                                                 </div>
                                             </div>
                                             <div className="text-xs text-slate-600 flex items-center gap-1 mt-2">
-                                                <User className="w-3 h-3" /> {s.created_by}
+                                                <User className="w-3 h-3" /> {s.createdBy}
                                             </div>
                                             <div className="mt-2 text-[11px] text-blue-600 font-medium flex items-center gap-1">
                                                 So sánh với hiện tại <ChevronRight className="w-3 h-3" />

@@ -3,7 +3,7 @@ from infrastructure.databases.base import Base
 
 class User:
     
-    def __innit__(self, user_name: str, password: str, description: str = None, status: bool = True):
+    def __init__(self, user_name: str, password: str, description: str = None, status: bool = True):
         self.user_name = user_name
         self.password = password
         self.description = description

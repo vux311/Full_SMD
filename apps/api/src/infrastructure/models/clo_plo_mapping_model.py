@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import (
     Column, BigInteger, String, Integer, Date, DateTime, Boolean,
-    ForeignKey, UnicodeText, DECIMAL, CheckConstraint, UniqueConstraint
+    ForeignKey, UnicodeText, DECIMAL, CheckConstraint, UniqueConstraint # <--- Đã thêm UniqueConstraint
 )
 from sqlalchemy.dialects.mssql import NVARCHAR
 from sqlalchemy.ext.declarative import declarative_base
@@ -19,6 +19,9 @@ class CloPloMapping(Base):
     
     __table_args__ = (
         CheckConstraint("level IN ('I', 'R', 'M', 'A')", name='check_level'),
+        # --- FIX: Đảm bảo 1 CLO chỉ map với 1 PLO một lần duy nhất ---
+        UniqueConstraint('syllabus_clo_id', 'program_plo_id', name='uq_clo_plo_mapping'),
+        # -------------------------------------------------------------
     )
     
     # Relationships

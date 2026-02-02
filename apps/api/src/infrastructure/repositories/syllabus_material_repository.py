@@ -16,11 +16,14 @@ class SyllabusMaterialRepository:
     def get_by_syllabus_id(self, syllabus_id: int) -> List[SyllabusMaterial]:
         return self.session.query(SyllabusMaterial).filter_by(syllabus_id=syllabus_id).all()
 
-    def create(self, data: dict) -> SyllabusMaterial:
+    def create(self, data: dict, commit: bool = True) -> SyllabusMaterial:
         item = SyllabusMaterial(**data)
         self.session.add(item)
-        self.session.commit()
-        self.session.refresh(item)
+        if commit:
+            self.session.commit()
+            self.session.refresh(item)
+        else:
+            self.session.flush()
         return item
 
     def delete(self, id: int) -> bool:

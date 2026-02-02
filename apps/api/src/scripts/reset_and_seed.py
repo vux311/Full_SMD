@@ -7,11 +7,13 @@ import sys
 import os
 from datetime import datetime, timedelta
 import json
+import random
 
 # Add parent directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from infrastructure.databases.mssql import engine, SessionLocal
+# --- Models ---
 from infrastructure.models.user_model import User
 from infrastructure.models.role_model import Role
 from infrastructure.models.user_role_model import UserRole
@@ -19,9 +21,12 @@ from infrastructure.models.department_model import Department
 from infrastructure.models.subject_model import Subject
 from infrastructure.models.subject_relationship_model import SubjectRelationship
 from infrastructure.models.program_model import Program
+from infrastructure.models.program_outcome_model import ProgramOutcome # <--- Mới
 from infrastructure.models.academic_year_model import AcademicYear
 from infrastructure.models.syllabus_model import Syllabus
 from infrastructure.models.syllabus_clo_model import SyllabusClo
+from infrastructure.models.clo_plo_mapping_model import CloPloMapping
+from infrastructure.models.assessment_clo_model import AssessmentClo
 from infrastructure.models.syllabus_material_model import SyllabusMaterial
 from infrastructure.models.teaching_plan_model import TeachingPlan
 from infrastructure.models.assessment_scheme_model import AssessmentScheme
@@ -31,7 +36,18 @@ from infrastructure.models.notification_model import Notification
 from infrastructure.models.syllabus_snapshot_model import SyllabusSnapshot
 from infrastructure.models.system_setting_model import SystemSetting
 from infrastructure.models.workflow_log_model import WorkflowLog
+from infrastructure.models.faculty_model import Faculty
+from infrastructure.models.syllabus_current_workflow import SyllabusCurrentWorkflow
+from infrastructure.models.syllabus_comment_model import SyllabusComment
+from infrastructure.models.workflow_state_model import WorkflowState
+from infrastructure.models.workflow_transition_model import WorkflowTransition
+from infrastructure.models.ai_auditlog_model import AiAuditLog
+from infrastructure.models.system_auditlog_model import SystemAuditLog
+from infrastructure.models.student_report_model import StudentReport
+from infrastructure.models.student_subscription_model import StudentSubscription
+from infrastructure.models.notification_template_model import NotificationTemplate
 from infrastructure.databases.base import Base
+from domain.constants import WorkflowStatus
 from werkzeug.security import generate_password_hash
 
 def reset_database(session):
@@ -70,12 +86,7 @@ def seed_roles(session):
     return {r.name: r for r in roles}
 
 def seed_users(session, roles_dict):
-    """Create users with various roles
-
-    Returns:
-        users_by_username: dict username -> User
-        users_by_role: dict role_name -> list[User]
-    """
+    """Create users with various roles"""
     print("\n👤 Seeding users...")
     
     users_data = [
@@ -132,11 +143,9 @@ def seed_users(session, roles_dict):
     print(f"   ✓ Created {len(users)} users (password: 123456)")
     return users_by_username, users_by_role
 
-from infrastructure.models.faculty_model import Faculty
-
 def seed_faculties(session):
     """Create faculties"""
-    print("\n🏛️ Seeding faculties...")
+    print("\n🏛️  Seeding faculties...")
     faculties_data = [
         {"code": "ENG", "name": "Faculty of Engineering", "description": "Engineering and Technology"},
         {"code": "SCI", "name": "Faculty of Science", "description": "Natural Sciences"},
@@ -166,7 +175,6 @@ def seed_departments(session, faculties):
     departments = []
     for d in departments_data:
         faculty_idx = d.pop("faculty_idx")
-        # In current DB schema Faculty model may not be implemented; set faculty_id to NULL if none
         faculty_id = faculties[faculty_idx].id if faculties and len(faculties) > faculty_idx else None
         dept = Department(
             faculty_id=faculty_id if faculty_id else None,
@@ -253,6 +261,27 @@ def seed_programs(session, departments):
     print(f"   ✓ Created {len(programs)} programs")
     return programs
 
+# --- NEW: Function to seed PLOs ---
+def seed_plos(session, programs):
+    """Create PLOs for each program"""
+    print("\n🎯 Seeding Program Learning Outcomes (PLOs)...")
+    
+    plos_created = 0
+    for program in programs:
+        # Create 5-8 PLOs per program
+        for i in range(1, 8):
+            plo = ProgramOutcome(
+                program_id=program.id,
+                code=f"PLO{i}",
+                description=f"Sinh viên có khả năng vận dụng kiến thức (PLO {i} của {program.name})"
+            )
+            session.add(plo)
+            plos_created += 1
+    
+    session.commit()
+    print(f"   ✓ Created {plos_created} PLOs")
+# ----------------------------------
+
 def seed_academic_years(session):
     """Create academic years"""
     print("\n📅 Seeding academic years...")
@@ -274,6 +303,7 @@ def seed_academic_years(session):
     session.commit()
     print(f"   ✓ Created {len(years)} academic years")
     return years
+
 def seed_subject_relationships(session, subjects):
     """Create relationship between subjects"""
     print("\n🔗 Seeding subject relationships...")
@@ -302,190 +332,263 @@ def seed_subject_relationships(session, subjects):
     session.commit()
     print(f"   ✓ Seeded {len(rels)} subject relationships")
     return rels
+
 def seed_syllabuses(session, subjects, programs, years, users_by_username, users_by_role):
-    """Create syllabuses with full children"""
-    print("\n📝 Seeding syllabuses...")
+    """Create syllabuses with full children and 5-step workflow state"""
+    print("\n📝 Seeding syllabuses (5-step workflow)...")
     
     lecturers = users_by_role.get("Lecturer", [])
-    # Fallback to any user if no lecturers exist
-    if not lecturers:
-        print("   ⚠️ No lecturers found in seed data, falling back to first available user.")
-        all_users = list(users_by_username.values())
-        if not all_users:
-            raise RuntimeError("No users available to assign as lecturers.")
-        lecturers = [all_users[0]]
+    hods = users_by_role.get("Head of Dept", [])
+    aas = users_by_role.get("Academic Affairs", [])
+    principals = users_by_role.get("Principal", [])
+    
+    # Fallback to admin if specific roles missing
+    admin = users_by_username.get("admin")
+    if not lecturers: lecturers = [admin]
+    if not hods: hods = [admin]
+    if not aas: aas = [admin]
+    if not principals: principals = [admin]
 
-    statuses = ["Draft", "Draft", "Pending", "Approved", "Approved", "Returned"]  # More approved for testing
+    # Use the 5-step workflow statuses from domain.constants
+    statuses = [
+        WorkflowStatus.DRAFT, 
+        WorkflowStatus.PENDING_REVIEW, 
+        WorkflowStatus.PENDING_APPROVAL, 
+        WorkflowStatus.APPROVED, 
+        WorkflowStatus.PUBLISHED, 
+        WorkflowStatus.RETURNED,
+        WorkflowStatus.REJECTED
+    ]
     
     syllabuses_created = 0
     clos_created = 0
+    mappings_created = 0
     materials_created = 0
     plans_created = 0
     assessment_schemes_created = 0
     components_created = 0
+    assessment_clos_created = 0
+    rubrics_created = 0
+    comments_created = 0
     snapshots_created = 0
     
-    # Create syllabuses for each subject (some have multiple versions)
-    for idx, subject in enumerate(subjects[:12]):  # First 12 subjects
-        # Determine how many versions for this subject
-        num_versions = 1 if idx < 6 else 2  # Some subjects have 2 versions
+    for idx, subject in enumerate(subjects[:15]):
+        # Distribute statuses across subjects
+        status = statuses[idx % len(statuses)]
+        lecturer_user = lecturers[idx % len(lecturers)]
+        hod_user = hods[idx % len(hods)]
+        aa_user = aas[idx % len(aas)]
+        principal_user = principals[idx % len(principals)]
         
-        for version_idx in range(num_versions):
-            version = f"1.{version_idx}"
-            status = statuses[syllabuses_created % len(statuses)]
-            lecturer_user = lecturers[syllabuses_created % len(lecturers)]
-            program = programs[syllabuses_created % len(programs)]
-            year = years[1 if version_idx == 0 else 2]  # Old version vs new version
-            
-            # Create syllabus
-            syllabus = Syllabus(
-                subject_id=subject.id,
-                program_id=program.id,
-                academic_year_id=year.id,
-                lecturer_id=lecturer_user.id,
-                status=status,
-                version=version,
-                time_allocation=json.dumps({"theory": 30, "exercises": 10, "practice": 20, "selfStudy": 15}),
-                prerequisites=f"Điều kiện: Hoàn thành {subject.credits} tín chỉ" if idx > 3 else "Không có điều kiện tiên quyết",
-                description=f"Học phần {subject.name_vi} cung cấp kiến thức nền tảng về {subject.name_en.lower()}. "
-                           f"Sinh viên sẽ được trang bị kỹ năng thực hành qua các bài tập và dự án thực tế. "
-                           f"Môn học gồm {subject.credits} tín chỉ với phương pháp giảng dạy kết hợp lý thuyết và thực hành.",
-                objectives=json.dumps([
-                    f"Hiểu rõ các khái niệm cơ bản về {subject.name_vi}",
-                    f"Áp dụng kiến thức vào giải quyết vấn đề thực tế",
-                    f"Phát triển kỹ năng làm việc nhóm và thuyết trình",
-                ]),
-                student_duties="Tham gia đầy đủ các buổi học, hoàn thành bài tập và dự án đúng hạn, chủ động tìm kiếm tài liệu học tập.",
-                other_requirements="Sinh viên cần có laptop cá nhân và cài đặt các công cụ lập trình cần thiết.",
-                pre_courses=subjects[max(0, idx-2)].code if idx > 1 else "",
-                co_courses=subjects[min(len(subjects)-1, idx+1)].code if idx < len(subjects)-1 else "",
-                course_type="Bắt buộc" if idx < 8 else "Tự chọn",
-                component_type="Cơ sở ngành" if idx < 5 else "Chuyên ngành",
-                date_prepared=(datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d"),
-                date_edited=datetime.now().strftime("%Y-%m-%d"),
-                dean="PGS.TS. Nguyễn Văn Trưởng",
-                head_department="TS. Trần Thị Phó",
-                is_active=True,
-                created_at=datetime.now() - timedelta(days=60),
-                updated_at=datetime.now()
-            )
-            session.add(syllabus)
-            session.flush()
-            syllabuses_created += 1
-            
-            # Add CLOs (3-5 CLOs per syllabus)
-            num_clos = 3 + (syllabuses_created % 3)
-            current_clos = []
-            for i in range(num_clos):
-                clo = SyllabusClo(
-                    syllabus_id=syllabus.id,
-                    code=f"CLO{i+1}",
-                    description=f"Sinh viên có khả năng {['phân tích', 'thiết kế', 'triển khai', 'đánh giá', 'tổng hợp'][i % 5]} "
-                               f"các vấn đề liên quan đến {subject.name_vi.lower()}."
-                )
-                session.add(clo)
-                current_clos.append(clo)
-                clos_created += 1
-            session.flush()
+        program = programs[idx % len(programs)]
+        year = years[2] # Current active year
 
-            # Add Assessment Schemes
-            scheme = AssessmentScheme(
+        # More realistic time allocation
+        time_alloc = {
+            "theory": 30,
+            "exercises": 10,
+            "practice": 15,
+            "selfStudy": 90
+        }
+
+        # Create syllabus
+        syllabus = Syllabus(
+            subject_id=subject.id,
+            program_id=program.id,
+            academic_year_id=year.id,
+            lecturer_id=lecturer_user.id,
+            head_department_id=hod_user.id,
+            dean_id=principal_user.id,
+            status=status,
+            version="1.0",
+            time_allocation=json.dumps(time_alloc),
+            prerequisites=f"Điều kiện: Hoàn thành {subject.credits} tín chỉ" if idx > 3 else "Không có điều kiện tiên quyết",
+            description=f"Học phần {subject.name_vi} cung cấp kiến thức nền tảng và chuyên sâu về {subject.name_en}.",
+            objectives=json.dumps([f"Hiểu rõ kiến thức cốt lõi của {subject.name_vi}", "Áp dụng kỹ năng giải quyết vấn đề thực tế"]),
+            student_duties="Tham gia 80% thời gian lên lớp, hoàn thành bài tập tuần.",
+            other_requirements="Laptop cá nhân cài đặt các công cụ lập trình.",
+            pre_courses=subjects[max(0, idx-2)].code if idx > 2 else "",
+            co_courses="",
+            course_type="Bắt buộc" if idx < 10 else "Tự chọn",
+            component_type="Cơ sở ngành" if idx < 7 else "Chuyên ngành",
+            date_prepared=(datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d"),
+            date_edited=datetime.now().strftime("%Y-%m-%d"),
+            head_department=hod_user.full_name,
+            dean=principal_user.full_name,
+            is_active=(status in [WorkflowStatus.PUBLISHED, WorkflowStatus.APPROVED]),
+            publish_date=datetime.now() if status == WorkflowStatus.PUBLISHED else None,
+            created_at=datetime.now() - timedelta(days=60),
+            updated_at=datetime.now()
+        )
+        session.add(syllabus)
+        session.flush()
+        syllabuses_created += 1
+        
+        # Add Active Workflow tracking record if it's in progress
+        if status in [WorkflowStatus.PENDING_REVIEW, WorkflowStatus.PENDING_APPROVAL, WorkflowStatus.APPROVED]:
+            assigned_user_id = hod_user.id
+            if status == WorkflowStatus.PENDING_APPROVAL: assigned_user_id = aa_user.id
+            elif status == WorkflowStatus.APPROVED: assigned_user_id = principal_user.id
+            
+            cw = SyllabusCurrentWorkflow(
                 syllabus_id=syllabus.id,
-                name="Ma trận đánh giá chuẩn",
-                weight=100.0
+                state=status,
+                assigned_user_id=assigned_user_id,
+                last_action_at=datetime.now() - timedelta(days=random.randint(1, 5))
             )
-            session.add(scheme)
-            session.flush()
-            assessment_schemes_created += 1
+            session.add(cw)
 
-            # Assessment Components (Total weight must be 100)
-            components_data = [
-                {"name": "Điểm chuyên cần", "weight": 10},
-                {"name": "Bài tập lớn / Dự án", "weight": 30},
-                {"name": "Thi giữa kỳ", "weight": 20},
-                {"name": "Thi cuối kỳ", "weight": 40}
-            ]
-            for comp_data in components_data:
-                comp = AssessmentComponent(
-                    scheme_id=scheme.id,
-                    name=comp_data["name"],
-                    weight=comp_data["weight"]
-                )
-                session.add(comp)
-                components_created += 1
-            
-            # Add Materials (4-6 materials per syllabus)
-            materials = [
-                {"type": "Main", "title": f"{subject.name_en} - Textbook Edition {version_idx + 3}, Publisher XYZ"},
-                {"type": "Main", "title": f"Lecture Slides - {subject.code} by {lecturer_user.username.upper()}"},
-                {"type": "Ref", "title": f"Advanced {subject.name_en} - Reference Guide"},
-                {"type": "Ref", "title": f"Online Resources: Coursera, edX, Udemy courses on {subject.name_en}"},
-                {"type": "Ref", "title": f"IEEE/ACM Papers on {subject.name_en.split()[0]} Research"},
-            ]
-            for mat in materials[:4 + (syllabuses_created % 3)]:
-                material = SyllabusMaterial(
-                    syllabus_id=syllabus.id,
-                    type=mat["type"],
-                    title=mat["title"]
-                )
-                session.add(material)
-                materials_created += 1
-            
-            # Add Teaching Plans (12-15 weeks)
-            num_weeks = 13 + (syllabuses_created % 3)
-            for week in range(1, num_weeks + 1):
-                clo_ref = f"CLO{((week-1) % num_clos) + 1}"
-                plan = TeachingPlan(
-                    syllabus_id=syllabus.id,
-                    week=week,
-                    topic=f"Tuần {week}: {['Giới thiệu', 'Cơ bản', 'Nâng cao', 'Thực hành', 'Ôn tập'][(week-1) % 5]} - "
-                          f"{'Chương ' + str((week-1)//3 + 1) if week <= 12 else 'Thi cuối kỳ'} ({clo_ref})",
-                    activity=f"Giảng lý thuyết {2 if week <= 10 else 0} tiết, Thực hành {2 if week <= 10 else 0} tiết, "
-                            f"{'Thi giữa kỳ' if week == 7 else 'Thi cuối kỳ' if week == num_weeks else 'Bài tập nhóm'}",
-                    assessment="Điểm chuyên cần, Bài tập" if week < num_weeks else "Thi cuối kỳ"
-                )
-                session.add(plan)
-                plans_created += 1
+        # Add CLOs
+        num_clos = 4
+        current_clos = []
+        for i in range(num_clos):
+            clo = SyllabusClo(
+                syllabus_id=syllabus.id,
+                code=f"CLO{i+1}",
+                description=f"Sinh viên có khả năng {['phân tích', 'thiết kế', 'triển khai', 'tổng hợp'][i % 4]} các module của {subject.code}."
+            )
+            session.add(clo)
+            current_clos.append(clo)
+            clos_created += 1
+        session.flush()
 
-            # Seed Workflow Logs and Snapshots for non-DRAFT
-            if status != "Draft":
-                # Create a SUBMIT log
-                session.add(WorkflowLog(
-                    syllabus_id=syllabus.id,
-                    actor_id=lecturer_user.id,
-                    action="SUBMIT",
-                    from_status="Draft",
-                    to_status="Pending",
-                    comment="Đã hoàn thiện nội dung và gửi duyệt."
-                ))
+        # Seed MAPPINGS (CLO -> PLO)
+        program_plos = session.query(ProgramOutcome).filter_by(program_id=program.id).all()
+        if program_plos:
+            for clo in current_clos:
+                selected_plos = random.sample(program_plos, k=min(len(program_plos), 2))
+                for plo in selected_plos:
+                    mapping = CloPloMapping(
+                        syllabus_clo_id=clo.id,
+                        program_plo_id=plo.id,
+                        level=random.choice(['I', 'R', 'M'])
+                    )
+                    session.add(mapping)
+                    mappings_created += 1
+
+        # Assessment Schemes
+        scheme = AssessmentScheme(syllabus_id=syllabus.id, name="Đánh giá học phần", weight=100.0)
+        session.add(scheme)
+        session.flush()
+        assessment_schemes_created += 1
+
+        # Assessment Components
+        comp_configs = [
+            {"name": "Điểm quá trình", "weight": 20, "method": "Chuyên cần & Bài tập", "criteria": "Tham gia lớp và làm bài tập tuần"},
+            {"name": "Kiểm tra giữa kỳ", "weight": 30, "method": "Tự luận", "criteria": "Hiểu kiến thức từ tuần 1-8"},
+            {"name": "Thi cuối kỳ", "weight": 50, "method": "Đồ án", "criteria": "Sản phẩm thực tế & Báo cáo"}
+        ]
+        curr_components = []
+        for config in comp_configs:
+            comp = AssessmentComponent(
+                scheme_id=scheme.id, 
+                name=config["name"], 
+                weight=config["weight"],
+                method=config["method"],
+                criteria=config["criteria"]
+            )
+            session.add(comp)
+            curr_components.append(comp)
+            components_created += 1
+        session.flush()
+
+        # Link Components to CLOs (AssessmentClo)
+        for comp in curr_components:
+            # Each component covers 1-2 CLOs
+            comp_clos = random.sample(current_clos, k=random.randint(1, 2))
+            for clo in comp_clos:
+                session.add(AssessmentClo(assessment_component_id=comp.id, syllabus_clo_id=clo.id))
+                assessment_clos_created += 1
             
-            if status in ["Approved", "Published"]:
-                # Create Snapshot for approved versions
-                snapshot = SyllabusSnapshot(
-                    syllabus_id=syllabus.id,
-                    version=version,
-                    snapshot_data={"info": "Seeded snapshot for testing immutable history"},
-                    created_by=users_by_role["Admin"][0].id if users_by_role.get("Admin") else lecturer_user.id
-                )
-                session.add(snapshot)
-                snapshots_created += 1
+            # Add Rubrics for Project component
+            if "Đồ án" in str(comp.method):
+                rubrics_data = [
+                    {"crit": "Giao diện và trải nghiệm người dùng", "max": 3.0, "pass": "Giao diện sạch sẽ, dễ dùng", "fail": "Giao diện lỗi, khó dùng"},
+                    {"crit": "Chức năng hệ thống", "max": 5.0, "pass": "Đầy đủ các chức năng yêu cầu", "fail": "Thiếu nhiều hơn 2 chức năng"},
+                    {"crit": "Báo cáo và thuyết trình", "max": 2.0, "pass": "Trình bày mạch lạc, báo cáo đúng định dạng", "fail": "Không chuẩn bị kỹ"}
+                ]
+                for r_data in rubrics_data:
+                    session.add(Rubric(
+                        component_id=comp.id,
+                        criteria=r_data["crit"],
+                        max_score=r_data["max"],
+                        description_level_pass=r_data["pass"],
+                        description_level_fail=r_data["fail"]
+                    ))
+                    rubrics_created += 1
+
+        # Add Comments for returned/rejected syllabuses
+        if status in [WorkflowStatus.RETURNED, WorkflowStatus.REJECTED]:
+            session.add(SyllabusComment(
+                syllabus_id=syllabus.id,
+                user_id=hod_user.id if status == WorkflowStatus.RETURNED else aa_user.id,
+                content=f"Nội dung chuẩn đầu ra {current_clos[0].code} cần được viết lại rõ ràng hơn, tránh các động từ mơ hồ như 'Hiểu', nên dùng 'Phân tích' hoặc 'Thiết kế'.",
+                is_resolved=False
+            ))
+            comments_created += 1
+        
+        # Add Materials
+        materials = [
+            {"type": "Main", "title": f"Giáo trình {subject.name_vi}"},
+            {"type": "Ref", "title": f"Tài liệu tham khảo {subject.name_en}"},
+        ]
+        for mat in materials:
+            session.add(SyllabusMaterial(syllabus_id=syllabus.id, type=mat["type"], title=mat["title"]))
+            materials_created += 1
+        
+        # Add Teaching Plans (15 weeks)
+        for week in range(1, 16):
+            target_clo = current_clos[(week-1) % num_clos]
+            session.add(TeachingPlan(
+                syllabus_id=syllabus.id,
+                week=week,
+                topic=f"Tuần {week}: {['Lý thuyết tổng quan', 'Phân tích yêu cầu', 'Thiết kế hệ thống', 'Triển khai mã nguồn', 'Tối ưu hóa'][week % 5]}",
+                activity=f"Giảng bài & {['Thảo luận nhóm', 'Làm lab', 'Kiểm tra nhanh'][week % 3]}",
+                assessment=f"Gắn với chuẩn {target_clo.code}" if week % 2 == 0 else ""
+            ))
+            plans_created += 1
+
+        # Workflow Logs
+        if status != WorkflowStatus.DRAFT:
+            session.add(WorkflowLog(
+                syllabus_id=syllabus.id,
+                actor_id=lecturer_user.id,
+                action="SUBMIT",
+                from_status=WorkflowStatus.DRAFT,
+                to_status=WorkflowStatus.PENDING_REVIEW,
+                comment="Nộp bản thảo đề cương mới."
+            ))
+            
+        if status in [WorkflowStatus.PUBLISHED, WorkflowStatus.APPROVED]:
+            snapshot = SyllabusSnapshot(
+                syllabus_id=syllabus.id,
+                version="1.0",
+                snapshot_data={"info": f"Finalized snapshot for {subject.code}"},
+                created_by=lecturer_user.id
+            )
+            session.add(snapshot)
+            snapshots_created += 1
 
     session.commit()
-    print(f"   ✓ Created {syllabuses_created} syllabuses")
+    print(f"   ✓ Created {syllabuses_created} syllabuses with 5-step states")
     print(f"   ✓ Created {clos_created} CLOs")
+    print(f"   ✓ Created {mappings_created} CLO-PLO Mappings")
+    print(f"   ✓ Created {assessment_clos_created} Assessment-CLO Links")
+    print(f"   ✓ Created {rubrics_created} Rubrics")
+    print(f"   ✓ Created {comments_created} Comments")
     print(f"   ✓ Created {materials_created} materials")
     print(f"   ✓ Created {plans_created} teaching plans")
-    print(f"   ✓ Created {assessment_schemes_created} assessment schemes")
-    print(f"   ✓ Created {snapshots_created} snapshots")
 
 def seed_system_settings(session):
     """Seed initial system settings"""
     print("\n⚙️ Seeding system settings...")
     settings = [
-        {"key": "UNIVERSITY_NAME", "value": "Đại học Công nghệ Quốc gia", "description": "Tên trường hiển thị trên đề cương"},
-        {"key": "ACADEMIC_YEAR_CURRENT", "value": "2025-2026", "description": "Năm học hiện tại mặc định"},
-        {"key": "APPROVAL_LEVELS", "value": "3", "description": "Số cấp phê duyệt bắt buộc"},
-        {"key": "AI_FEATURES_ENABLED", "value": "true", "description": "Bật/Tắt các tính năng AI hỗ trợ"},
+        {"key": "UNIVERSITY_NAME", "value": "Đại học Công nghệ Quốc gia", "data_type": "STRING", "description": "Tên trường hiển thị trên đề cương"},
+        {"key": "UNIVERSITY_WEBSITE", "value": "https://unq.edu.vn", "data_type": "STRING", "description": "Website chính thức của nhà trường"},
+        {"key": "UNIVERSITY_LOGO_URL", "value": "https://unq.edu.vn/logo.png", "data_type": "STRING", "description": "Đường dẫn đến logo của trường"},
+        {"key": "workflow_deadline_days", "value": "5", "data_type": "NUMBER", "description": "Hạn chót phê duyệt mặc định (ngày) cho mỗi bước trong quy trình"},
+        {"key": "current_academic_year", "value": "2025-2026", "data_type": "STRING", "description": "Năm học hiện hành của hệ thống"},
+        {"key": "enable_email_notifications", "value": "true", "data_type": "BOOLEAN", "description": "Bật/Tắt hệ thống gửi thông báo qua email"},
     ]
     for s in settings:
         session.add(SystemSetting(**s))
@@ -512,6 +615,11 @@ def main():
         subjects = seed_subjects(session, departments)
         seed_subject_relationships(session, subjects)
         programs = seed_programs(session, departments)
+        
+        # --- CALL NEW PLO SEEDER ---
+        seed_plos(session, programs) 
+        # ---------------------------
+        
         years = seed_academic_years(session)
         seed_system_settings(session)
         seed_syllabuses(session, subjects, programs, years, users_by_username, users_by_role)
@@ -519,21 +627,9 @@ def main():
         print("\n" + "="*60)
         print("✅ DATABASE RESET AND SEED COMPLETED SUCCESSFULLY!")
         print("="*60)
-        print("\n📊 Summary:")
-        print(f"   • Roles: {len(roles_dict)}")
-        print(f"   • Users: {len(users_by_username)} (Admin: 1, Principal: 1, Lecturers: 5, HOD: 2, AA: 2, Students: 3)")
-        print(f"   • Departments: {len(departments)}")
-        print(f"   • Subjects: {len(subjects)}")
-        print(f"   • Programs: {len(programs)}")
-        print(f"   • Academic Years: {len(years)}")
-        print(f"   • Syllabuses: {session.query(Syllabus).count()}")
-        print(f"   • CLOs, Materials, Teaching Plans: ~500+")
         print("\n🔑 Login credentials:")
         print("   • Admin: admin / 123456")
-        print("   • Principal: principal1 / 123456")
         print("   • Lecturer: lecturer1 / 123456")
-        print("   • HOD: hod1 / 123456")
-        print("   • Academic Affairs: aa1 / 123456")
         print("   • Student: student1 / 123456")
         print("\n" + "="*60)
         

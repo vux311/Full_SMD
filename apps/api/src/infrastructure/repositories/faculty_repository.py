@@ -13,6 +13,9 @@ class FacultyRepository:
     def get_by_id(self, id: int) -> Optional[Faculty]:
         return self.session.query(Faculty).filter_by(id=id).first()
 
+    def get_by_code(self, code: str) -> Optional[Faculty]:
+        return self.session.query(Faculty).filter_by(code=code).first()
+
     def create(self, data: dict) -> Faculty:
         faculty = Faculty(**data)
         self.session.add(faculty)

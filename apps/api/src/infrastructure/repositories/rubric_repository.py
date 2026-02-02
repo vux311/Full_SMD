@@ -13,11 +13,14 @@ class RubricRepository:
     def get_by_component_id(self, component_id: int) -> List[Rubric]:
         return self.session.query(Rubric).filter_by(component_id=component_id).all()
 
-    def create(self, data: dict) -> Rubric:
+    def create(self, data: dict, commit: bool = True) -> Rubric:
         item = Rubric(**data)
         self.session.add(item)
-        self.session.commit()
-        self.session.refresh(item)
+        if commit:
+            self.session.commit()
+            self.session.refresh(item)
+        else:
+            self.session.flush()
         return item
 
     def update(self, id: int, data: dict) -> Optional[Rubric]:

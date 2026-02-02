@@ -58,7 +58,14 @@ class NotificationService:
         users = self.user_repository.get_all()
         target_users = []
         for u in users:
-            u_roles = [r.name for r in u.roles] if hasattr(u, 'roles') else []
+            # Sửa lỗi AttributeError: 'UserRole' object has no attribute 'name'
+            # u.roles trả về danh sách UserRole, mỗi UserRole có thuộc tính role chứa đối tượng Role
+            u_roles = []
+            if hasattr(u, 'roles'):
+                for ur in u.roles:
+                    if hasattr(ur, 'role') and ur.role:
+                        u_roles.append(ur.role.name)
+            
             if any(role in u_roles for role in roles):
                 target_users.append(u)
         

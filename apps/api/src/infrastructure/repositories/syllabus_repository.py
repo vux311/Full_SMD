@@ -61,16 +61,45 @@ class SyllabusRepository:
         
         return items, total
 
-    def get_by_id(self, id: int) -> Optional[Syllabus]:
-        return (self.session.query(Syllabus)
+    def get_public_syllabuses(self, filters: dict = None) -> List[Syllabus]:
+        """
+        Specialized method to get only Approved or Published syllabuses.
+        Ensures is_active is not False.
+        """
+        query = (self.session.query(Syllabus)
                 .options(
                     joinedload(Syllabus.subject),
                     joinedload(Syllabus.program),
                     joinedload(Syllabus.academic_year),
                     joinedload(Syllabus.lecturer)
-                )
-                .filter_by(id=id)
-                .first())
+                ))
+        
+        # Filter status to PUBLIC only
+        query = query.filter(Syllabus.status.in_(['APPROVED', 'PUBLISHED']))
+        
+        # Filter is_active (handle NULL as True)
+        query = query.filter(Syllabus.is_active != False)
+        
+        if filters:
+            if 'program_id' in filters and filters['program_id']:
+                query = query.filter(Syllabus.program_id == filters['program_id'])
+            if 'academic_year_id' in filters and filters['academic_year_id']:
+                query = query.filter(Syllabus.academic_year_id == filters['academic_year_id'])
+            if 'subject_id' in filters and filters['subject_id']:
+                query = query.filter(Syllabus.subject_id == filters['subject_id'])
+                
+        return query.all()
+
+    def get_by_id(self, id: int, for_update: bool = False) -> Optional[Syllabus]:
+        query = self.session.query(Syllabus).options(
+            joinedload(Syllabus.subject),
+            joinedload(Syllabus.program),
+            joinedload(Syllabus.academic_year),
+            joinedload(Syllabus.lecturer)
+        )
+        if for_update:
+            query = query.with_for_update()
+        return query.filter_by(id=id).first()
 
     def get_by_subject_id(self, subject_id: int) -> List[Syllabus]:
         return (self.session.query(Syllabus)
@@ -91,9 +120,9 @@ class SyllabusRepository:
                 .order_by(Syllabus.created_at.desc())
                 .first())
 
-    def get_details(self, id: int) -> Optional[Syllabus]:
+    def get_details(self, id: int, for_update: bool = False) -> Optional[Syllabus]:
         # Eagerly load related metadata AND collections
-        return (
+        query = (
             self.session.query(Syllabus)
             .options(
                 joinedload(Syllabus.subject),
@@ -110,9 +139,11 @@ class SyllabusRepository:
                         joinedload(AssessmentComponent.clos).joinedload(AssessmentClo.syllabus_clo)
                     ),
             )
-            .filter_by(id=id)
-            .first()
         )
+        if for_update:
+            query = query.with_for_update()
+            
+        return query.filter_by(id=id).first()
 
     def create(self, data: dict) -> Syllabus:
         s = Syllabus(**data)

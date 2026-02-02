@@ -10,7 +10,7 @@ program_bp = Blueprint('program', __name__, url_prefix='/programs')
 
 schema = ProgramSchema()
 
-@program_bp.route('/', methods=['GET', 'OPTIONS'], strict_slashes=False)
+@program_bp.route('/', methods=['GET'], strict_slashes=False)
 @inject
 def list_programs(program_service: ProgramService = Provide[Container.program_service]):
     """Get all programs
@@ -26,7 +26,7 @@ def list_programs(program_service: ProgramService = Provide[Container.program_se
     items = program_service.list_programs()
     return jsonify(schema.dump(items, many=True)), 200
 
-@program_bp.route('/', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@program_bp.route('/', methods=['POST'], strict_slashes=False)
 @token_required
 @role_required(['Admin', 'Academic Affairs'])
 @inject
@@ -41,7 +41,7 @@ def create_program(program_service: ProgramService = Provide[Container.program_s
     p = program_service.create_program(loaded_data)
     return jsonify(schema.dump(p)), 201
 
-@program_bp.route('/<int:id>', methods=['PUT', 'OPTIONS'], strict_slashes=False)
+@program_bp.route('/<int:id>', methods=['PUT'], strict_slashes=False)
 @inject
 def update_program(id: int, program_service: ProgramService = Provide[Container.program_service]):
     data = request.get_json() or {}
@@ -56,7 +56,7 @@ def update_program(id: int, program_service: ProgramService = Provide[Container.
         return jsonify({'message': 'Program not found'}), 404
     return jsonify(schema.dump(p)), 200
 
-@program_bp.route('/<int:id>', methods=['DELETE', 'OPTIONS'], strict_slashes=False)
+@program_bp.route('/<int:id>', methods=['DELETE'], strict_slashes=False)
 @inject
 def delete_program(id: int, program_service: ProgramService = Provide[Container.program_service]):
     ok = program_service.delete_program(id)

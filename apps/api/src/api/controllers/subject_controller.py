@@ -1,7 +1,8 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from dependency_injector.wiring import inject, Provide
 from dependency_container import Container
 from services.subject_service import SubjectService
+from services.system_auditlog_service import SystemAuditLogService
 from api.schemas.subject_schema import SubjectSchema
 from api.middleware import token_required, role_required
 
@@ -51,11 +52,12 @@ def get_subject(id: int, subject_service: SubjectService = Provide[Container.sub
         return jsonify({'message': 'Subject not found'}), 404
     return jsonify(schema.dump(subject)), 200
 
-@subject_bp.route('/', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@subject_bp.route('', methods=['POST'], strict_slashes=False)
 @token_required
 @role_required(['Admin', 'Academic Affairs'])
 @inject
-def create_subject(subject_service: SubjectService = Provide[Container.subject_service]):
+def create_subject(subject_service: SubjectService = Provide[Container.subject_service],
+                   audit_service: SystemAuditLogService = Provide[Container.system_auditlog_service]):
     """Create a new subject
     ---
     post:
@@ -74,21 +76,34 @@ def create_subject(subject_service: SubjectService = Provide[Container.subject_s
         400:
           description: Invalid input
     """
-    if request.method == 'OPTIONS':
-        return '', 200
     data = request.get_json() or {}
     try:
         loaded_data = schema.load(data)
     except Exception as e:
         return jsonify(getattr(e, 'messages', str(e))), 400
     subject = subject_service.create_subject(loaded_data)
+    
+    # Audit log
+    try:
+        audit_service.create_log(
+            user_id=getattr(g, 'user_id', None),
+            action_type='CREATE',
+            resource_target='Subject',
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent'),
+            details=f"Created subject: {subject.name_vi} ({subject.code})"
+        )
+    except Exception as ae:
+        print(f"Audit log failed: {ae}")
+        
     return jsonify(schema.dump(subject)), 201
 
-@subject_bp.route('/<int:id>', methods=['PUT', 'OPTIONS'], strict_slashes=False)
+@subject_bp.route('/<int:id>', methods=['PUT'], strict_slashes=False)
 @token_required
 @role_required(['Admin', 'Academic Affairs'])
 @inject
-def update_subject(id: int, subject_service: SubjectService = Provide[Container.subject_service]):
+def update_subject(id: int, subject_service: SubjectService = Provide[Container.subject_service],
+                   audit_service: SystemAuditLogService = Provide[Container.system_auditlog_service]):
     """Update an existing subject
     ---
     put:
@@ -115,8 +130,6 @@ def update_subject(id: int, subject_service: SubjectService = Provide[Container.
         404:
           description: Subject not found
     """
-    if request.method == 'OPTIONS':
-        return '', 200
     data = request.get_json() or {}
     try:
         loaded_data = schema.load(data, partial=True)
@@ -126,11 +139,28 @@ def update_subject(id: int, subject_service: SubjectService = Provide[Container.
     subject = subject_service.update_subject(id, loaded_data)
     if not subject:
         return jsonify({'message': 'Subject not found'}), 404
+    
+    # Audit log
+    try:
+        audit_service.create_log(
+            user_id=getattr(g, 'user_id', None),
+            action_type='UPDATE',
+            resource_target='Subject',
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent'),
+            details=f"Updated subject #{id}: {subject.code}"
+        )
+    except Exception as ae:
+        print(f"Audit log failed: {ae}")
+
     return jsonify(schema.dump(subject)), 200
 
-@subject_bp.route('/<int:id>', methods=['DELETE', 'OPTIONS'], strict_slashes=False)
+@subject_bp.route('/<int:id>', methods=['DELETE'], strict_slashes=False)
+@token_required
+@role_required(['Admin'])
 @inject
-def delete_subject(id: int, subject_service: SubjectService = Provide[Container.subject_service]):
+def delete_subject(id: int, subject_service: SubjectService = Provide[Container.subject_service],
+                   audit_service: SystemAuditLogService = Provide[Container.system_auditlog_service]):
     """Delete subject
     ---
     delete:
@@ -149,9 +179,22 @@ def delete_subject(id: int, subject_service: SubjectService = Provide[Container.
         404:
           description: Subject not found
     """
-    if request.method == 'OPTIONS':
-        return '', 200
+
     ok = subject_service.delete_subject(id)
     if not ok:
         return jsonify({'message': 'Subject not found'}), 404
+    
+    # Audit log
+    try:
+        audit_service.create_log(
+            user_id=getattr(g, 'user_id', None),
+            action_type='DELETE',
+            resource_target='Subject',
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent'),
+            details=f"Deleted subject #{id}"
+        )
+    except Exception as ae:
+        print(f"Audit log failed: {ae}")
+
     return '', 204

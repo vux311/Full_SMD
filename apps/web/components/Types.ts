@@ -1,10 +1,10 @@
-export type SyllabusStatus = "Draft" | "Pending" | "Approved" | "Returned" | "Pending Approval" | "Published";
+export type SyllabusStatus = "DRAFT" | "PENDING_REVIEW" | "PENDING_APPROVAL" | "APPROVED" | "PUBLISHED" | "REJECTED" | "RETURNED";
 
 export interface SyllabusData {
   id?: number;
   // Required backend IDs
   subjectId?: number;
-  programId?: number;
+  program_id?: number;
   academicYearId?: number;
   lecturerId?: number;
   headDepartmentId?: number;
@@ -67,10 +67,10 @@ export interface SyllabusData {
 }
 
 export const defaultSyllabus: SyllabusData = {
-  status: "Draft",
+  status: "DRAFT",
   // Set default IDs to undefined - user MUST select these
   subjectId: undefined,
-  programId: undefined,
+  program_id: undefined,
   academicYearId: undefined,
   lecturerId: undefined,
   headDepartmentId: undefined,

@@ -1,6 +1,25 @@
 import os
 import json
+import re
 from datetime import datetime
+
+# SEC-004: Prompt Injection Mitigation
+def sanitize_prompt_input(text):
+    """Basic sanitizer for AI prompts"""
+    if not isinstance(text, str):
+        return text
+    # Pattern to detect common injection attempts
+    patterns = [
+        r"(?i)ignore\s+previous\s+(instructions|prompts)",
+        r"(?i)forget\s+all\s+previous",
+        r"(?i)system\s*:",
+        r"(?i)###\s*instruction",
+        r"(?i)\[INST\]",
+        r"(?i)[\w\s]*you\s+are\s+now\s+a"
+    ]
+    for pattern in patterns:
+        text = re.sub(pattern, "[INJECTION_ATTEMPT_FILTERED]", text)
+    return text
 
 # Prefer the new `google-genai` package
 try:
@@ -20,6 +39,12 @@ class AiService:
         self.api_key = api_key or os.getenv('GEMINI_API_KEY')
         self.audit_repository = audit_repository
 
+    def _validate_response_schema(self, data, required_keys):
+        """SEC-005: Basic schema validation for AI responses"""
+        if not isinstance(data, dict):
+            return False
+        return all(key in data for key in required_keys)
+
     def _log_usage(self, syllabus_id, action, in_tok, out_tok):
         if self.audit_repository and syllabus_id:
             try:
@@ -36,8 +61,8 @@ class AiService:
         Bạn là một chuyên gia khảo thí và kiểm định chất lượng giáo dục. 
         Hãy phân tích sự thay đổi giữa hai phiên bản đề cương học phần dưới đây.
         
-        Phiên bản 1 (Cũ): {json.dumps(base_data, ensure_ascii=False)}
-        Phiên bản 2 (Mới): {json.dumps(target_data, ensure_ascii=False)}
+        Phiên bản 1 (Cũ): {sanitize_prompt_input(json.dumps(base_data, ensure_ascii=False))}
+        Phiên bản 2 (Mới): {sanitize_prompt_input(json.dumps(target_data, ensure_ascii=False))}
         
         Hãy cung cấp báo cáo so sánh chi tiết bằng tiếng Việt, tập trung vào:
         1. Các thay đổi về cấu trúc (Số tín chỉ, phân bổ thời gian).
@@ -83,7 +108,14 @@ class AiService:
                     text = text.replace("```json", "", 1).replace("```", "", 1).strip()
                 elif text.startswith("```"):
                     text = text.replace("```", "", 2).strip()
-                return json.loads(text)
+                
+                result = json.loads(text)
+                
+                # SEC-005: Validate schema
+                required = ["summary", "detailed_analysis", "impact_assessment", "is_significant_change"]
+                if not self._validate_response_schema(result, required):
+                    return {"summary": text, "error": "AI response missing required schema fields"}
+                return result
             except Exception as pe:
                 print(f"JSON Parse Error in AI Compare: {pe}")
                 return {"summary": text, "error": "AI returned non-JSON response"}
@@ -101,9 +133,9 @@ class AiService:
         Bạn là một chuyên gia về thiết kế chương trình đào tạo theo chuẩn đầu ra (Outcome-Based Education - OBE).
         Hãy phân tích ma trận thuận nghịch giữa Chuẩn đầu ra Học phần (CLO) và Chuẩn đầu ra Chương trình đào tạo (PLO).
 
-        Danh sách CLOs: {json.dumps(clos_data, ensure_ascii=False)}
-        Danh sách PLOs: {json.dumps(plos_data, ensure_ascii=False)}
-        Ma trận Mapping hiện tại: {json.dumps(mappings_data, ensure_ascii=False)}
+        Danh sách CLOs: {sanitize_prompt_input(json.dumps(clos_data, ensure_ascii=False))}
+        Danh sách PLOs: {sanitize_prompt_input(json.dumps(plos_data, ensure_ascii=False))}
+        Ma trận Mapping hiện tại: {sanitize_prompt_input(json.dumps(mappings_data, ensure_ascii=False))}
         (Ghi chú: Mapping level I=Introduced, R=Reinforced, M=Mastered, A=Assessed)
 
         Hãy thực hiện:
@@ -148,7 +180,13 @@ class AiService:
             try:
                 if text.startswith("```json"):
                     text = text.replace("```json", "", 1).replace("```", "", 1).strip()
-                return json.loads(text)
+                
+                result = json.loads(text)
+                # SEC-005: Validate schema
+                required = ["overall_score", "analysis", "suggestions", "is_valid"]
+                if not self._validate_response_schema(result, required):
+                    return {"analysis": text, "error": "AI response missing required schema fields"}
+                return result
             except:
                 return {"analysis": text, "error": "AI returned non-JSON response"}
         except Exception as e:
@@ -163,7 +201,7 @@ class AiService:
 
         # Complete Template matching frontend SyllabusData interface
         json_template = {
-            "subject_name_vi": subject_name,
+            "subject_name_vi": sanitize_prompt_input(subject_name),
             "subject_name_en": "...",
             "subject_code": "XXX101",
             "credits": 3,

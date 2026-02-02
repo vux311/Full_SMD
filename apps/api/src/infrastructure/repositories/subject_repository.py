@@ -13,6 +13,9 @@ class SubjectRepository:
     def get_by_id(self, id: int) -> Optional[Subject]:
         return self.session.query(Subject).filter_by(id=id).first()
 
+    def get_by_code(self, code: str) -> Optional[Subject]:
+        return self.session.query(Subject).filter_by(code=code).first()
+
     def create(self, data: dict) -> Subject:
         subject = Subject(**data)
         self.session.add(subject)

@@ -185,14 +185,14 @@ export default function Dashboard() {
                             
                             {/* Edit - chỉ Lecturer và Admin, và chỉ khi Draft/Returned */}
                             {(userRole === "Lecturer" || userRole === "Admin") && 
-                             (s.status === "Draft" || s.status === "Returned") && (
+                             (s.status.toUpperCase() === "DRAFT" || s.status.toUpperCase() === "RETURNED") && (
                                 <Link href={`/syllabus/${s.id}/edit`}>
                                     <Button variant="ghost" size="icon" title="Chỉnh sửa"><Edit className="w-4 h-4 text-teal-600" /></Button>
                                 </Link>
                             )}
                             
                             {/* Delete - chỉ Admin */}
-                            {userRole === "Admin" && s.status === "Draft" && (
+                            {userRole === "Admin" && s.status.toUpperCase() === "DRAFT" && (
                                 <div className="scale-90"><SyllabusDeleteButton id={s.id} /></div>
                             )}
                         </div>

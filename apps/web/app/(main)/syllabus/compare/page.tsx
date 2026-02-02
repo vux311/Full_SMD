@@ -1,9 +1,9 @@
-"use client";
+﻿"use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
 import axios from "@/lib/axios";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Sparkles, Scale, Info, CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +23,7 @@ interface AiReport {
     error?: string;
 }
 
-export default function ComparePage() {
+function CompareContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const baseId = searchParams.get("baseId");
@@ -131,7 +131,7 @@ export default function ComparePage() {
 
       {data?.ai_report?.error && (
           <div className="p-4 bg-red-50 text-red-600 rounded-lg border border-red-100 text-sm italic">
-            ⚠️ AI Analysis: {data.ai_report.error}
+             AI Analysis: {data.ai_report.error}
           </div>
       )}
 
@@ -139,7 +139,7 @@ export default function ComparePage() {
         <h2 className="text-xl font-bold text-slate-700">Dữ liệu thô (Field Comparison)</h2>
         {data?.diffs.length === 0 ? (
             <Card className="p-8 text-center text-green-600 font-bold border-green-200 bg-green-50">
-                ✅ Không có sự thay đổi nào giữa 2 phiên bản này.
+                 Không có sự thay đổi nào giữa 2 phiên bản này.
             </Card>
         ) : (
             data?.diffs.map((diff, idx) => (
@@ -163,4 +163,12 @@ export default function ComparePage() {
       </div>
     </div>
   );
+}
+
+export default function ComparePage() {
+    return (
+        <Suspense fallback={<div className="p-8 text-center">Analyzing changes...</div>}>
+            <CompareContent />
+        </Suspense>
+    );
 }

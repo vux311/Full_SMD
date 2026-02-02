@@ -117,6 +117,11 @@ class Container(containers.DeclarativeContainer):
         session=db_session
     )
 
+    system_setting_repository = providers.Factory(
+        SystemSettingRepository,
+        session=db_session
+    )
+
     department_repository = providers.Factory(
         DepartmentRepository,
         session=db_session
@@ -142,6 +147,11 @@ class Container(containers.DeclarativeContainer):
         session=db_session
     )
     # Services
+    system_setting_service = providers.Factory(
+        SystemSettingService,
+        repository=system_setting_repository
+    )
+
     subject_service = providers.Factory(
         SubjectService,
         repository=subject_repository
@@ -230,11 +240,6 @@ class Container(containers.DeclarativeContainer):
 
     notification_repository = providers.Factory(
         NotificationRepository,
-        session=db_session
-    )
-
-    system_setting_repository = providers.Factory(
-        SystemSettingRepository,
         session=db_session
     )
 
@@ -330,7 +335,8 @@ class Container(containers.DeclarativeContainer):
         clo_plo_mapping_repository=clo_plo_mapping_repository,
         program_outcome_repository=program_outcome_repository,
         search_service=search_service,
-        student_subscription_repository=student_subscription_repository
+        student_subscription_repository=student_subscription_repository,
+        system_setting_service=system_setting_service
     )
 
     syllabus_clo_service = providers.Factory(
@@ -408,11 +414,6 @@ class Container(containers.DeclarativeContainer):
         repository=syllabus_comment_repository,
         syllabus_repository=syllabus_repository,
         user_repository=user_repository
-    )
-
-    system_setting_service = providers.Factory(
-        SystemSettingService,
-        repository=system_setting_repository
     )
 
     student_service = providers.Factory(

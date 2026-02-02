@@ -107,7 +107,8 @@ export default async function Page(props: { params: Promise<{ id: string }> }) {
   if (!id) return renderNotFound();
 
   try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/syllabuses/${id}`, { cache: "no-store" });
+    const apiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+    const res = await fetch(`${apiUrl}/syllabuses/${id}`, { cache: "no-store" });
 
     if (res.status === 404) return renderNotFound();
     

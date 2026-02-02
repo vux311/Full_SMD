@@ -84,14 +84,40 @@ export default function Dashboard() {
     let color = "bg-gray-500";
     let label = status;
     
-    switch (status) {
-        case "Approved": color = "bg-green-600"; break;
-        case "Pending": color = "bg-yellow-500"; label = "Pending Review"; break;
-        case "Pending Approval": color = "bg-orange-500"; label = "Pending AA"; break; 
-        case "Returned": color = "bg-red-500"; break;
-        case "Draft": color = "bg-slate-500"; break;
+    // Standardize status for switch (handle Uppercase/Lowercase)
+    const s = (status || "").toUpperCase();
+
+    switch (s) {
+        case "PUBLISHED": 
+            color = "bg-green-600"; 
+            label = "Đã xuất bản";
+            break;
+        case "APPROVED": 
+            color = "bg-teal-600"; 
+            label = "Đã phê duyệt (Chờ XB)";
+            break;
+        case "PENDING_REVIEW": 
+            color = "bg-yellow-500"; 
+            label = "Chờ BM duyệt"; 
+            break;
+        case "PENDING_APPROVAL": 
+            color = "bg-blue-500"; 
+            label = "Chờ PĐT duyệt"; 
+            break; 
+        case "RETURNED": 
+            color = "bg-red-500"; 
+            label = "Bị trả lại";
+            break;
+        case "REJECTED":
+            color = "bg-red-700";
+            label = "Bị từ chối";
+            break;
+        case "DRAFT": 
+            color = "bg-slate-500"; 
+            label = "Bản nháp";
+            break;
     }
-    return <Badge className={color}>{label}</Badge>;
+    return <Badge className={`${color} text-white border-0`}>{label}</Badge>;
   };
 
   return (
@@ -176,22 +202,35 @@ export default function Dashboard() {
                                     variant="ghost" 
                                     size="icon" 
                                     title={
-                                        (s.status === "Draft" || s.status === "Returned") 
-                                        ? "Chỉnh sửa đề cương" 
-                                        : "Xem đề cương (Chỉ có thể sửa Draft/Returned)"
-                                    }
-                                >
-                                    {(s.status === "Draft" || s.status === "Returned") ? (
-                                        <Edit className="w-4 h-4 text-teal-600" />
-                                    ) : (
-                                        <Eye className="w-4 h-4 text-gray-500" />
-                                    )}
-                                </Button>
-                            </Link>
-                            
-                            {s.status === "Draft" && (
-                                <div className="scale-90"><SyllabusDeleteButton id={s.id} /></div>
-                            )}
+                                    (s.status.toUpperCase() === "DRAFT" || s.status.toUpperCase() === "RETURNED" || s.status.toUpperCase() === "REJECTED") 
+                                    ? "Chỉnh sửa đề cương" 
+                                    : "Xem chi tiết đề cương (Trạng thái hiện tại không cho phép sửa)"
+                                }
+                            >
+                                {(s.status.toUpperCase() === "DRAFT" || s.status.toUpperCase() === "RETURNED" || s.status.toUpperCase() === "REJECTED") ? (
+                                    <Edit className="w-4 h-4 text-teal-600" />
+                                ) : (
+                                    <Eye className="w-4 h-4 text-gray-500" />
+                                )}
+                            </Button>
+                        </Link>
+
+                        {/* Nút Clone/Version mới cho các đề cương đã xong */}
+                        {s.status.toUpperCase() === "PUBLISHED" && (
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                title="Tạo phiên bản mới (Copy dữ liệu)"
+                                className="text-orange-500"
+                                onClick={() => alert("Tính năng clone đề cương đang được phát triển...")}
+                            >
+                                <GitCompare className="w-4 h-4" />
+                            </Button>
+                        )}
+                        
+                        {(s.status.toUpperCase() === "DRAFT" || s.status.toUpperCase() === "RETURNED" || s.status.toUpperCase() === "REJECTED") && (
+                            <div className="scale-90"><SyllabusDeleteButton id={s.id} onDeleteSuccess={() => fetchData(currentPage, searchTerm)} /></div>
+                        )}
                         </div>
                       </TableCell>
                     </TableRow>

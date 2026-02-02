@@ -10,8 +10,8 @@ interface Notification {
   title: string;
   message: string;
   type?: "info" | "success" | "warning" | "error";
-  is_read: boolean;
-  created_at: string;
+  isRead: boolean;
+  createdAt: string;
   link?: string;
 }
 
@@ -90,7 +90,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const markAsRead = async (id: string | number) => {
     try {
       await axios.put(`/notifications/${id}/read`);
-      setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
     } catch (e) {
       console.error("Failed to mark notification as read:", e);
     }
@@ -100,7 +100,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     setNotifications([]);
   };
 
-  const unreadCount = notifications.filter(n => !n.is_read).length;
+  const unreadCount = notifications.filter(n => !n.isRead).length;
 
   return (
     <NotificationContext.Provider value={{ 

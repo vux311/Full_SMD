@@ -90,13 +90,13 @@ export default function StudentActionButtons({ syllabusId, subjectId, subjectCod
           className="flex-1 gap-2 bg-gradient-to-r from-teal-600 to-blue-600 hover:from-teal-700 hover:to-blue-700 text-white shadow-md shadow-teal-100"
           onClick={handleAiSummary}
           disabled={loading === "ai"}
-        >
+        > 
           {loading === "ai" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
           Tóm tắt AI
         </Button>
       </div>
 
-      {aiSummary && (
+      {aiSummary && ( 
         <div className="bg-teal-50 border border-teal-100 rounded-lg p-4 animate-in fade-in slide-in-from-top-2">
             <h4 className="font-bold text-teal-800 mb-2 flex items-center gap-2">
                 <Sparkles className="w-4 h-4" /> Tóm tắt AI (Sơ lược môn học)
@@ -104,7 +104,7 @@ export default function StudentActionButtons({ syllabusId, subjectId, subjectCod
             <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line">{aiSummary}</p>
         </div>
       )}
-
+        
       <Dialog open={showReportDialog} onOpenChange={setShowReportDialog}>
         <DialogContent>
             <DialogHeader>

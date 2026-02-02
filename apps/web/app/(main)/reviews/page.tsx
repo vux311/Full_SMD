@@ -37,10 +37,10 @@ export default function ReviewPage() {
     const role = localStorage.getItem("role") || "";
     setUserRole(role);
 
-    // Determine status to fetch based on role
-    let statusToFetch = "Pending";
-    if (role === "Academic Affairs") statusToFetch = "Pending Approval";
-    else if (role === "Principal") statusToFetch = "Pending Final Approval";
+    // Determine status to fetch based on role - Yuri Workflow Update
+    let statusToFetch = "PENDING_REVIEW";
+    if (role === "Academic Affairs" || role === "AA") statusToFetch = "PENDING_APPROVAL";
+    else if (role === "Principal") statusToFetch = "APPROVED";
     else if (role === "Admin") statusToFetch = "";
 
     try {
@@ -79,7 +79,12 @@ export default function ReviewPage() {
       try {
           await axios.post(`/syllabuses/${id}/evaluate`, { action: 'approve' });
           alert("✅ Phê duyệt thành công!");
-          fetchReviews();
+          
+          // QUAN TRỌNG: Cập nhật state cục bộ để biến khỏi danh sách ngay lập tức
+          setReviews(prev => prev.filter(r => r.id !== id));
+          
+          // Vẫn gọi lại fetch để đảm bảo đồng bộ hoàn toàn với server (optional)
+          // fetchReviews(); 
       } catch(e: any) {
           const status = e?.response?.status || e?.status;
           
@@ -115,9 +120,12 @@ export default function ReviewPage() {
       try {
           await axios.post(`/syllabuses/${rejectId}/evaluate`, { action: 'reject', comment: rejectReason });
           alert("✅ Đã trả về yêu cầu sửa!");
+          
+          // QUAN TRỌNG: Cập nhật state cục bộ
+          const idToRemove = rejectId;
           setRejectId(null);
           setRejectReason("");
-          fetchReviews();
+          setReviews(prev => prev.filter(r => r.id !== idToRemove));
       } catch(e: any) {
           const status = e?.response?.status || e?.status;
           
@@ -196,8 +204,9 @@ export default function ReviewPage() {
                     <TableCell className="font-bold">{s.subjectCode}</TableCell>
                     <TableCell>
                         <div className="font-medium">{s.subjectNameVi}</div>
-                        {(s.status || "").toLowerCase() === "pending approval" && <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 mt-1">Đã qua BM</Badge>}
-                        {(s.status || "").toLowerCase() === "pending final approval" && <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200 mt-1">Đã qua PĐT</Badge>}
+                        {(s.status || "").toUpperCase() === "PENDING_APPROVAL" && <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 mt-1">Đã qua BM</Badge>}
+                        {(s.status || "").toUpperCase() === "APPROVED" && <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200 mt-1">Đã qua PĐT</Badge>}
+                        {(s.status || "").toUpperCase() === "PENDING_REVIEW" && <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200 mt-1">Chờ BM duyệt</Badge>}
                     </TableCell>
                     <TableCell><Badge variant="outline">v{s.version}</Badge></TableCell>
                     <TableCell className="text-gray-600">{s.lecturer}</TableCell>

@@ -14,6 +14,9 @@ class DepartmentRepository:
     def get_by_id(self, id: int) -> Optional[Department]:
         return self.session.query(Department).filter_by(id=id).first()
 
+    def get_by_code(self, code: str) -> Optional[Department]:
+        return self.session.query(Department).filter_by(code=code).first()
+
     def create(self, data: dict) -> Department:
         department = Department(**data)
         self.session.add(department)

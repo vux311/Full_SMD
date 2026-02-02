@@ -15,6 +15,8 @@ class AssessmentComponent(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     scheme_id = Column(BigInteger, ForeignKey('assessment_schemes.id'), nullable=False)
     name = Column(NVARCHAR(255), nullable=False)
+    method = Column(UnicodeText, nullable=True)
+    criteria = Column(UnicodeText, nullable=True)
     weight = Column(DECIMAL(5, 2), nullable=False)
     
     # Relationships
