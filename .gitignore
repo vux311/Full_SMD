@@ -52,11 +52,11 @@ __pycache__/
 *$py.class
 venv/
 .venv/
-env/
+# env/
 *.db
 *.sqlite3
-.env
-.env.local
+# .env
+# .env.local
 
 # --- Node.js / Frontend ---
 node_modules/
@@ -81,5 +81,5 @@ celerybeat-schedule*
 **/static/uploads/*
 !**/static/uploads/.gitkeep
 postgres_data/
-.env*
-!*.env.example
+# .env*
+# !*.env.example
