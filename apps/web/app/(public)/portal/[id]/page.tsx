@@ -30,7 +30,12 @@ export default async function StudentViewPage(props: { params: Promise<{ id: str
         ...defaultSyllabus,
         ...rawData,
         objectives: rawData.objectives || [],
-        clos: rawData.clos || [],
+        clos: Array.isArray(rawData.clos)
+            ? rawData.clos.map((clo: any) => ({
+                code: clo.cloCode || clo.code,
+                description: clo.description
+            }))
+            : [],
         
         // Chuyển đổi ploMapping từ cấu trúc lồng nhau của backend
         ploMapping: Array.isArray(rawData.clos) 
@@ -39,11 +44,12 @@ export default async function StudentViewPage(props: { params: Promise<{ id: str
                 const mappings = clo.ploMappings || [];
                 if (Array.isArray(mappings)) {
                     mappings.forEach((m: any) => {
-                        const code = m.programPloCode;
+                        const code = m.ploCode;
                         if (code) plos[code] = m.level;
                     });
                 }
-                return { cloCode: clo.code, plos };
+                const currentCloCode = clo.cloCode || clo.code;
+                return { cloCode: currentCloCode, plos };
             })
             : [],
 

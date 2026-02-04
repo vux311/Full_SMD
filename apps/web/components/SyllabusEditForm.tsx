@@ -1,9 +1,3 @@
-/*
-khi vào trang http://localhost:3000/syllabus/create để tạo đề cương mới, sau khi đã biên soạn hoàn tất mình ấn lưu nháp
-chuyện xảy ra là khi ấn lưu nháp những gì mình đã biên soạn không được lưu
-hãy kiểm tra và sửa lỗi này giúp mình, mức độ ưu tiên rất cao ảnh hưởng đến toàn bộ dự án 
-và nếu không thể sửa lỗi này thì viết lại từ đầu là điều chắc chắn xảy ra 
-*/
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
@@ -351,33 +345,33 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
           lecturerId: data.lecturerId
         });
 
-        // Create parent syllabus first (axios will convert camelCase -> snake_case on POST)
+        // Create parent syllabus first (backend expects snake_case for critical fields)
         const parentPayload: any = {
-          subjectId: data.subjectId,
+          subject_id: data.subjectId,
           program_id: data.program_id,
-          academicYearId: data.academicYearId,
-          lecturerId: data.lecturerId,
-          headDepartmentId: data.headDepartmentId,
-          deanId: data.deanId,
+          academic_year_id: data.academicYearId,
+          lecturer_id: data.lecturerId,
+          head_department_id: data.headDepartmentId,
+          dean_id: data.deanId,
           version: data.version || "1.0",
-          timeAllocation: data.timeAllocation,
+          time_allocation: data.timeAllocation,
           prerequisites: data.prerequisites ?? null,
           
           // Content fields
           description: data.description ?? null,
           objectives: data.objectives || [],
-          studentDuties: data.studentDuties ?? null,
-          otherRequirements: data.otherRequirements ?? null,
+          student_duties: data.studentDuties ?? null,
+          other_requirements: data.otherRequirements ?? null,
           
           // Additional metadata
-          preCourses: data.preCourses ?? null,
-          coCourses: data.coCourses ?? null,
-          courseType: data.courseType ?? null,
-          componentType: data.componentType ?? null,
-          datePrepared: data.datePrepared ?? null,
-          dateEdited: data.dateEdited ?? null,
+          pre_courses: data.preCourses ?? null,
+          co_courses: data.coCourses ?? null,
+          course_type: data.courseType ?? null,
+          component_type: data.componentType ?? null,
+          date_prepared: data.datePrepared ?? null,
+          date_edited: data.dateEdited ?? null,
           dean: data.dean ?? null,
-          headDepartment: data.headDepartment ?? null,
+          head_department: data.headDepartment ?? null,
         };
 
         // Add child entities to payload - backend service handles them atomically
@@ -392,19 +386,19 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
             };
           });
 
-        parentPayload.teachingPlans = data.teachingPlan?.filter((p) => p.week && p.topic) || [];
+        parentPayload.teaching_plans = data.teachingPlan?.filter((p) => p.week && p.topic) || [];
         parentPayload.materials = data.materials?.filter((m) => m.type && m.title) || [];
         
         // Convert assessment scheme to nested structure expected by backend
         if (data.assessmentScheme && data.assessmentScheme.length > 0) {
-          parentPayload.assessmentSchemes = [{
+          parentPayload.assessment_schemes = [{
             name: "Default Scheme",
             components: data.assessmentScheme.map(item => ({
               name: item.component,
               method: item.method,
               weight: item.weight,
               criteria: item.criteria,
-              cloIds: item.clos // CLO codes/IDs reference
+              clo_ids: item.clos // backend expects clo_ids
             }))
           }];
         }
@@ -443,31 +437,31 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
       // Edit existing syllabus
       // Syncing payload with create logic to preserve children
       const updatePayload: any = {
-        subjectId: data.subjectId,
+        subject_id: data.subjectId,
         program_id: data.program_id,
-        academicYearId: data.academicYearId,
-        lecturerId: data.lecturerId,
-        headDepartmentId: data.headDepartmentId,
-        deanId: data.deanId,
+        academic_year_id: data.academicYearId,
+        lecturer_id: data.lecturerId,
+        head_department_id: data.headDepartmentId,
+        dean_id: data.deanId,
         version: data.version,
-        timeAllocation: data.timeAllocation,
+        time_allocation: data.timeAllocation,
         prerequisites: data.prerequisites ?? null,
         
         // Content fields
         description: data.description ?? null,
         objectives: data.objectives || [],
-        studentDuties: data.studentDuties ?? null,
-        otherRequirements: data.otherRequirements ?? null,
+        student_duties: data.studentDuties ?? null,
+        other_requirements: data.otherRequirements ?? null,
         
         // Additional metadata
-        preCourses: data.preCourses ?? null,
-        coCourses: data.coCourses ?? null,
-        courseType: data.courseType ?? null,
-        componentType: data.componentType ?? null,
-        datePrepared: data.datePrepared ?? null,
-        dateEdited: data.dateEdited ?? null,
+        pre_courses: data.preCourses ?? null,
+        co_courses: data.coCourses ?? null,
+        course_type: data.courseType ?? null,
+        component_type: data.componentType ?? null,
+        date_prepared: data.datePrepared ?? null,
+        date_edited: data.dateEdited ?? null,
         dean: data.dean ?? null,
-        headDepartment: data.headDepartment ?? null,
+        head_department: data.headDepartment ?? null,
       };
 
       // Synchronize child entities saving logic
@@ -482,18 +476,18 @@ export default function SyllabusEditForm({ initial }: { initial: SyllabusData })
           };
         });
 
-      updatePayload.teachingPlans = data.teachingPlan?.filter((p) => p.week && p.topic) || [];
+      updatePayload.teaching_plans = data.teachingPlan?.filter((p) => p.week && p.topic) || [];
       updatePayload.materials = data.materials?.filter((m) => m.type && m.title) || [];
       
       if (data.assessmentScheme && data.assessmentScheme.length > 0) {
-        updatePayload.assessmentSchemes = [{
+        updatePayload.assessment_schemes = [{
           name: "Default Scheme",
           components: data.assessmentScheme.map(item => ({
             name: item.component,
             method: item.method,
             weight: item.weight,
             criteria: item.criteria,
-            cloIds: item.clos
+            clo_ids: item.clos
           }))
         }];
       }

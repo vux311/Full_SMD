@@ -124,18 +124,24 @@ export default async function Page(props: { params: Promise<{ id: string }> }) {
         ...defaultSyllabus,
         ...rawData,
         objectives: rawData.objectives || [],
-        clos: rawData.clos || [],
+        clos: Array.isArray(rawData.clos)
+            ? rawData.clos.map((clo: any) => ({
+                code: clo.cloCode || clo.code,
+                description: clo.description
+            }))
+            : [],
         ploMapping: Array.isArray(rawData.clos) 
             ? rawData.clos.map((clo: any) => {
                 const plos: { [key: string]: string } = {};
-                const mappings = clo.plo_mappings || clo.ploMappings;
+                const mappings = clo.ploMappings || [];
                 if (Array.isArray(mappings)) {
                     mappings.forEach((m: any) => {
-                        const code = m.program_plo_code || m.programPloCode;
+                        const code = m.ploCode || m.programPloCode;
                         if (code) plos[code] = m.level;
                     });
                 }
-                return { cloCode: clo.code, plos };
+                const currentCloCode = clo.cloCode || clo.code;
+                return { cloCode: currentCloCode, plos };
             })
             : [],
         

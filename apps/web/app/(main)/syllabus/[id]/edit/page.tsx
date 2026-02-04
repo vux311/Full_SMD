@@ -70,16 +70,24 @@ export default function Page() {
             lecturer: typeof rawData.lecturer === 'object' ? rawData.lecturer?.fullName : (rawData.lecturer || ""),
             
             // Arrays - Backend plural vs Frontend singular
-            clos: Array.isArray(rawData.clos) ? rawData.clos : [],
+            clos: Array.isArray(rawData.clos) 
+                ? rawData.clos.map((clo: any) => ({
+                    code: clo.cloCode || clo.code,
+                    description: clo.description
+                })) 
+                : [],
             ploMapping: Array.isArray(rawData.clos) 
                 ? rawData.clos.map((clo: any) => {
                     const plos: { [key: string]: string } = {};
-                    if (Array.isArray(clo.ploMappings)) {
-                        clo.ploMappings.forEach((m: any) => {
-                            if (m.programPloCode) plos[m.programPloCode] = m.level;
+                    const mappings = clo.ploMappings || [];
+                    if (Array.isArray(mappings)) {
+                        mappings.forEach((m: any) => {
+                            const code = m.ploCode || m.programPloCode;
+                            if (code) plos[code] = m.level;
                         });
                     }
-                    return { cloCode: clo.code, plos };
+                    const currentCloCode = clo.cloCode || clo.code;
+                    return { cloCode: currentCloCode, plos };
                 })
                 : [],
             
